@@ -1,14 +1,31 @@
 import Calls
 
-ack1 = [ (0 , Const "S" (Exact [(Case "S")] 0) ) , (1 , Exact [(Case "S")] 1)]
+-- ack Z     m     = S m
+-- ack (S n) Z     = ack0 n (S Z)
+-- ack (S n) (S m) = ack2 n (ack1 (S n) m)
 
-ack2 = [ (0 , Exact [(Case "S")] 0) , (1 , Approx [(Infty, [], 0) , (Infty, [], 1)])]
+-- 0=n 1=m
+ack1 :: Call
+ack1 = Call
+  [ (0 , Const "S" (Exact [Case "S"] 0))  -- n := S (S- n)
+  , (1 , Exact [Case "S"] 1)              -- m := S- m
+  ]
 
-f1 = [ (0 , Const "B" (Const "C" (Exact [(Case "A")] 0) ) )]
-f2 = [ (0 , Exact [(Case "B")] 0)]
-f3 = [ (0 , Exact [(Case "C")] 0)]
+ack2 = Call
+  [ (0 , Exact [Case "S"] 0)           -- n := S- n
+  , (1 , Approx [ Branch Infty [] 0    -- m := ∞
+                , Branch Infty [] 1])  --    = <∞>n + <∞>m
+  ]
 
-g = [ (0 , Approx [ (Number 0, [], 1), (Infty, [], 1), (Number 10, [], 1) ]) ]
+f1 = Call [ (0 , Const "B" (Const "C" (Exact [(Case "A")] 0) ) )]
+f2 = Call [ (0 , Exact [(Case "B")] 0)]
+f3 = Call [ (0 , Exact [(Case "C")] 0)]
+
+g = Call [ (0 , Approx
+  [ Branch (Number 0) [] 1
+  , Branch Infty [] 1
+  , Branch (Number 10) [] 1
+  ] ) ]
 
 main = do
   print_call ack1
