@@ -16,9 +16,10 @@ module Agda.Termination.Termination
   ) where
 
 import Agda.Termination.CutOff
+import Agda.Termination.CallDecoration hiding (toList)
+import qualified Agda.Termination.CallDecoration as CMSet
 import Agda.Termination.CallGraph  hiding (tests)
-import Agda.Termination.CallMatrix hiding (tests, toList)
-import qualified Agda.Termination.CallMatrix as CMSet
+import Agda.Termination.CallMatrix hiding (tests)
 import Agda.Termination.Order      hiding (tests)
 import Agda.Termination.SparseMatrix
 
@@ -87,7 +88,7 @@ checkIdem c = if idempotent c then hasDecrease c else True
 --   Self-composition @c >*< c@ should not make any parameter-argument relation
 --   worse.
 idempotent  :: (?cutoff :: CutOff) => CallMatrixAug cinfo -> Bool
-idempotent (CallMatrixAug m _) = (m >*< m) `notWorse` m
+idempotent (CallDeco m _) = (m >*< m) `notWorse` m
 
 hasDecrease :: (?cutoff :: CutOff) => CallMatrixAug cinfo -> Bool
 hasDecrease = any isDecr . diagonal

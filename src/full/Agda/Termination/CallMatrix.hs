@@ -26,6 +26,7 @@ import Data.Traversable (Traversable)
 import qualified Data.Traversable as Trav
 
 import Agda.Termination.CutOff
+import Agda.Termination.CallDecoration
 import Agda.Termination.Order as Order hiding (tests)
 import Agda.Termination.SparseMatrix as Matrix hiding (tests)
 import Agda.Termination.Semiring (HasZero(..), Semiring)
@@ -110,7 +111,7 @@ type ArgumentIndex = Int
 
 
 newtype CallMatrix' a = CallMatrix { mat :: Matrix ArgumentIndex a }
-  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, CoArbitrary, PartialOrd)
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, CoArbitrary, PartialOrd, Pretty)
 
 type CallMatrix = CallMatrix' Order
 
@@ -118,16 +119,6 @@ deriving instance NotWorse CallMatrix
 
 instance HasZero a => Diagonal (CallMatrix' a) a where
   diagonal = diagonal . mat
-
-
--- | Call matrix multiplication and call combination.
-
-class CallComb a where
-  (>*<)    :: (?cutoff :: CutOff) => a -> a -> a
-  callComb :: (?cutoff :: CutOff) => a -> a -> Maybe a
-
-  callComb x y = Just $ x >*< y
-  x >*< y = fromMaybe __IMPOSSIBLE__ $ callComb x y
 
 -- | Call matrix multiplication.
 --
@@ -160,78 +151,18 @@ addCallMatrices cm1 cm2 = CallMatrix $
 
 -- | Call matrix augmented with path information.
 
-data CallMatrixAug cinfo = CallMatrixAug
-  { augCallMatrix :: CallMatrix -- ^ The matrix of the (composed call).
-  , augCallInfo   :: cinfo      -- ^ Meta info, like call path.
-  }
-  deriving (Eq, Show)
+type CallMatrixAug cinfo = CallDeco CallMatrix cinfo
 
 instance Diagonal (CallMatrixAug cinfo) Order where
-  diagonal = diagonal . augCallMatrix
+  diagonal = diagonal . augCallM
 
-instance PartialOrd (CallMatrixAug cinfo) where
-  comparable m m' = comparable (augCallMatrix m) (augCallMatrix m')
-
-instance NotWorse (CallMatrixAug cinfo) where
-  c1 `notWorse` c2 = augCallMatrix c1 `notWorse` augCallMatrix c2
-
--- | Augmented call matrix multiplication.
-
-instance Monoid cinfo => CallComb (CallMatrixAug cinfo) where
-  callComb (CallMatrixAug m1 p1) (CallMatrixAug m2 p2) = do
-    m <- callComb m1 m2
-    return $ CallMatrixAug m (mappend p1 p2)
-
--- | Non-augmented call matrix.
-
-noAug :: Monoid cinfo => CallMatrix -> CallMatrixAug cinfo
-noAug m = CallMatrixAug m mempty
-
-------------------------------------------------------------------------
--- * Sets of incomparable call matrices augmented with path information.
-------------------------------------------------------------------------
-
--- | Sets of incomparable call matrices augmented with path information.
---   Use overloaded 'null', 'empty', 'singleton', 'mappend'.
-newtype CMSet cinfo = CMSet { cmSet :: Favorites (CallMatrixAug cinfo) }
-  deriving ( Show, Arbitrary, CoArbitrary
-           , Monoid, Null, Singleton (CallMatrixAug cinfo) )
-
--- | Call matrix set product is the Cartesian product.
-
-instance Monoid cinfo => CallComb (CMSet cinfo) where
-  CMSet as >*< CMSet bs = CMSet $ Fav.fromList $
-    [ m | a <- Fav.toList as, b <- Fav.toList bs, m <- maybeToList (callComb a b) ]
-
--- | Insert into a call matrix set.
-
-insert :: CallMatrixAug cinfo -> CMSet cinfo -> CMSet cinfo
-insert a (CMSet as) = CMSet $ Fav.insert a as
-
--- | Union two call matrix sets.
-
-union :: CMSet cinfo -> CMSet cinfo -> CMSet cinfo
-union = mappend
--- union (CMSet as) (CMSet bs) = CMSet $ Fav.union as bs
-
--- | Convert into a list of augmented call matrices.
-
-toList :: CMSet cinfo -> [CallMatrixAug cinfo]
-toList (CMSet as) = Fav.toList as
 
 ------------------------------------------------------------------------
 -- * Printing
 ------------------------------------------------------------------------
 
-instance Pretty CallMatrix where
-  pretty (CallMatrix m) = pretty m
-
-instance Pretty cinfo => Pretty (CallMatrixAug cinfo) where
-  pretty (CallMatrixAug m cinfo) = pretty cinfo $$ pretty m
-
-instance Pretty cinfo => Pretty (CMSet cinfo) where
-  pretty = vcat . punctuate newLine . map pretty . toList
-    where newLine = text "\n"
+-- instance Pretty CallMatrix where
+--   pretty (CallMatrix m) = pretty m
 
 ------------------------------------------------------------------------
 -- * Generators and tests
@@ -247,14 +178,6 @@ instance Arbitrary CallMatrix where
 callMatrix :: Size ArgumentIndex -> Gen CallMatrix
 callMatrix sz = CallMatrix <$> matrix sz
 
--- ** CallMatrixAug
-
-instance Arbitrary cinfo => Arbitrary (CallMatrixAug cinfo) where
-  arbitrary = CallMatrixAug <$> arbitrary <*> arbitrary
-
-instance CoArbitrary cinfo => CoArbitrary (CallMatrixAug cinfo) where
-  coarbitrary (CallMatrixAug m info) = coarbitrary m . coarbitrary info
-
 ------------------------------------------------------------------------
 -- * All tests
 ------------------------------------------------------------------------
@@ -263,7 +186,7 @@ tests :: IO Bool
 tests = runTests "Agda.Termination.CallMatrix"
   [
   ]
-  where ?cutoff = DontCutOff -- CutOff 2  -- don't cut off in tests!
+  where ?cutoff = CutOff 2
 
 
 -- RETIRED:  LONG OUTDATED call matrix invariant

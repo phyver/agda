@@ -46,7 +46,7 @@ import Agda.Termination.CutOff
 import Agda.Termination.Monad
 import Agda.Termination.CallGraph hiding (toList)
 import qualified Agda.Termination.CallGraph as CallGraph
-import Agda.Termination.CallMatrix hiding (toList)
+import Agda.Termination.CallMatrix
 import Agda.Termination.Order     as Order
 import qualified Agda.Termination.SparseMatrix as Matrix
 import Agda.Termination.Termination (endos, idempotent)

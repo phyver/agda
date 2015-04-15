@@ -45,8 +45,9 @@ import qualified Data.Set as Set
 import Data.Traversable (Traversable)
 import qualified Data.Traversable as Trav
 
-import Agda.Termination.CallMatrix (CallMatrix, callMatrix, CallMatrixAug(..), CMSet(..), CallComb(..))
-import qualified Agda.Termination.CallMatrix as CMSet
+import Agda.Termination.CallDecoration (CallDeco(..), CMSet(..), CallComb(..))
+import qualified Agda.Termination.CallDecoration as CMSet
+import Agda.Termination.CallMatrix (CallMatrix, callMatrix, CallMatrixAug)
 import Agda.Termination.CutOff
 import Agda.Termination.Order
 import Agda.Termination.SparseMatrix as Matrix hiding (tests)
@@ -88,14 +89,14 @@ type Node = Int
 --   It can be labelled with several call matrices if there
 --   are several pathes from one function to another.
 
-type Call cinfo = Edge Node Node (CMSet cinfo)
+type Call cinfo = Edge Node Node (CMSet CallMatrix cinfo)
 
-callMatrixSet :: Call cinfo -> CMSet cinfo
+callMatrixSet :: Call cinfo -> CMSet CallMatrix cinfo
 callMatrixSet = label
 
 -- | Make a call with a single matrix.
 mkCall :: Node -> Node -> CallMatrix -> cinfo -> Call cinfo
-mkCall s t m cinfo = Edge s t $ singleton $ CallMatrixAug m cinfo
+mkCall s t m cinfo = Edge s t $ singleton $ CallDeco m cinfo
 
 -- | Make a call with empty @cinfo@.
 mkCall' :: Monoid cinfo => Node -> Node -> CallMatrix -> Call cinfo
@@ -123,7 +124,7 @@ instance Monoid cinfo => CallComb (Call cinfo) where
 -- meta information for different calls can be combined when the calls
 -- are combined.
 
-newtype CallGraph cinfo = CallGraph { theCallGraph :: Graph Node Node (CMSet cinfo) }
+newtype CallGraph cinfo = CallGraph { theCallGraph :: Graph Node Node (CMSet CallMatrix cinfo) }
   deriving (Show)
 
 
@@ -183,7 +184,7 @@ instance PartialOrd a => CombineNewOld (Favorites a) where
   combineNewOld new old = (new', Fav.unionCompared (new', old'))
     where (new', old') = Fav.compareFavorites new old
 
-deriving instance CombineNewOld (CMSet cinfo)
+deriving instance CombineNewOld (CMSet CallMatrix cinfo)
 
 instance (Monoid a, CombineNewOld a, Ord s, Ord t) => CombineNewOld (Graph s t a) where
   combineNewOld new old = Graph.unzip $ Graph.unionWith comb new' old'
