@@ -1,4 +1,4 @@
--- {-# LANGUAGE CPP #-} -- GHC 7.4.2 requires this indentation. See Issue 1460.
+{-# LANGUAGE CPP                        #-}
 {-# LANGUAGE DeriveFoldable             #-}
 {-# LANGUAGE DeriveFunctor              #-}
 {-# LANGUAGE DeriveTraversable          #-}
@@ -18,6 +18,7 @@ module Agda.Termination.CallMatrix where
 --   ) where
 
 import Data.List as List hiding (union, insert)
+import Data.Maybe
 import Data.Monoid
 import Data.Foldable (Foldable)
 import qualified Data.Foldable as Fold
@@ -39,6 +40,9 @@ import Agda.Utils.Pretty hiding ((<>))
 import Agda.Utils.QuickCheck
 import Agda.Utils.Singleton
 import Agda.Utils.TestHelpers
+
+#include "undefined.h"
+import Agda.Utils.Impossible
 
 ------------------------------------------------------------------------
 --  * Call matrices
@@ -119,7 +123,11 @@ instance HasZero a => Diagonal (CallMatrix' a) a where
 -- | Call matrix multiplication and call combination.
 
 class CallComb a where
-  (>*<) :: (?cutoff :: CutOff) => a -> a -> a
+  (>*<)    :: (?cutoff :: CutOff) => a -> a -> a
+  callComb :: (?cutoff :: CutOff) => a -> a -> Maybe a
+
+  callComb x y = Just $ x >*< y
+  x >*< y = fromMaybe __IMPOSSIBLE__ $ callComb x y
 
 -- | Call matrix multiplication.
 --
@@ -137,7 +145,7 @@ class CallComb a where
 --   @m1 >*< m2@ has dimensions @ar(h) × ar(f)@.
 
 instance CallComb CallMatrix where
-  CallMatrix m1 >*< CallMatrix m2 = CallMatrix $ mul orderSemiring m2 m1
+  callComb (CallMatrix m1) (CallMatrix m2) = Just $ CallMatrix $ mul orderSemiring m2 m1
 
 {- UNUSED, BUT DON'T REMOVE!
 -- | Call matrix addition = minimum = pick worst information.
@@ -170,8 +178,9 @@ instance NotWorse (CallMatrixAug cinfo) where
 -- | Augmented call matrix multiplication.
 
 instance Monoid cinfo => CallComb (CallMatrixAug cinfo) where
-  CallMatrixAug m1 p1 >*< CallMatrixAug m2 p2 =
-    CallMatrixAug (m1 >*< m2) (mappend p1 p2)
+  callComb (CallMatrixAug m1 p1) (CallMatrixAug m2 p2) = do
+    m <- callComb m1 m2
+    return $ CallMatrixAug m (mappend p1 p2)
 
 -- | Non-augmented call matrix.
 
@@ -192,7 +201,7 @@ newtype CMSet cinfo = CMSet { cmSet :: Favorites (CallMatrixAug cinfo) }
 
 instance Monoid cinfo => CallComb (CMSet cinfo) where
   CMSet as >*< CMSet bs = CMSet $ Fav.fromList $
-    [ a >*< b | a <- Fav.toList as, b <- Fav.toList bs ]
+    [ m | a <- Fav.toList as, b <- Fav.toList bs, m <- maybeToList (callComb a b) ]
 
 -- | Insert into a call matrix set.
 
