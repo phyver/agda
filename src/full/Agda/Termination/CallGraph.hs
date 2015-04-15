@@ -38,6 +38,7 @@ import Data.Function
 import qualified Data.List as List
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
+import Data.Maybe
 import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -303,5 +304,4 @@ tests = runTests "Agda.Termination.CallGraph" []
   -- [ quickCheck' prop_complete
   -- , quickCheck' prop_ensureCompletePrecondition
   -- ]
-  where ?cutoff = DontCutOff -- CutOff 2  -- don't cut off in tests!
-
+  where ?cutoff = CutOff 2

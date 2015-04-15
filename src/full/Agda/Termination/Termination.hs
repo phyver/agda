@@ -110,6 +110,18 @@ type CG = CallGraph ()
 buildCallGraph :: [Call ()] -> CG
 buildCallGraph = fromList
 
+-- | An example to test whether @DontCutOff@ loops.
+--
+--   Yes, it loops, so do not run this test at home.
+
+example0 :: CG
+example0 = buildCallGraph [mkCall' 1 1 $ CallMatrix $ fromLists (Size 1 1) [[ decr (0 - 1) ]]]
+  where ?cutoff = DontCutOff
+
+prop_terminates_not_example0 :: Bool
+prop_terminates_not_example0 = isLeft $ terminates example0
+  where ?cutoff = DontCutOff
+
 -- | The example from the JFP'02 paper.
 
 example1 :: CG

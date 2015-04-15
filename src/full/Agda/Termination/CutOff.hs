@@ -9,7 +9,7 @@ module Agda.Termination.CutOff where
 
 data CutOff
   = CutOff Int -- ^ @c >= 0@ means: record decrease up to including @c+1@.
-  | DontCutOff
+  | DontCutOff -- ^ Loops termination checker on @f x = f (c x)@.
   deriving (Eq, Ord)
 
 instance Show CutOff where
