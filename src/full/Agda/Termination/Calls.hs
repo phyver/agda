@@ -10,6 +10,9 @@ import Data.Monoid
 import Data.Functor
 import Data.Traversable (forM)
 
+type Depth = Int  -- ^ cutoff for constructor/destructor depth
+type Bound = Int  -- ^ cutoff for weight
+
 -- | Type for depth differences.
 data Z_infty
   = Number Int
@@ -222,7 +225,7 @@ substitute (Approx bs) tau = Approx . nub_max . concat <$> do
 
 -- | Collapsing the weights.
 
-collapse1 :: Int -> Term -> Term
+collapse1 :: Bound -> Term -> Term
 collapse1 b (Const c u) = Const c (collapse1 b u)
 collapse1 b (Record r) | let (labels, args) = unzip r =
   Record (zip labels (map (collapse1 b) args))
@@ -231,7 +234,7 @@ collapse1 b (Approx bs) = Approx $ nub_max $ map (mapWeight (collapse_infty b)) 
 
 -- | Collapsing the destructors.
 
-collapse2 :: Int -> Term -> Term
+collapse2 :: Depth -> Term -> Term
 collapse2 d (Const c u) = Const c (collapse2 d u)
 collapse2 d (Record r) | let (labels, args) = unzip r =
   Record (zip labels (map (collapse2 d) args))
@@ -248,7 +251,7 @@ collapse2 d (Approx bs) = Approx $ nub_max $
 
 -- | Collapsing constructors.
 
-collapse3 :: Int -> Term -> Term
+collapse3 :: Depth -> Term -> Term
 collapse3 0 (Exact ds i) = Exact ds i
 collapse3 0 u = Approx $ reduce_approx (Number 0) u
 collapse3 d (Const c u) = Const c (collapse3 (d-1) u)
@@ -258,17 +261,17 @@ collapse3 d u = u
 
 -- | Collapsing a term.
 
-collapse :: Int -> Int -> Term -> Term
+collapse :: Depth -> Bound -> Term -> Term
 collapse d b u = collapse1 b $ collapse2 d $ collapse3 d u
 
 -- | Collapsing a call.
 
-collapse_call :: Int -> Int -> Call -> Call
+collapse_call :: Depth -> Bound -> Call -> Call
 collapse_call d b (Call tau) = Call $ map (second (collapse d b)) tau
 
 -- | Call composition (partial).
 
-compose :: Int -> Int -> Call -> Call -> Maybe Call
+compose :: Depth -> Bound -> Call -> Call -> Maybe Call
 compose d b tau (Call sigma) = collapse_call d b . Call <$> do
   forM sigma $ \ (i,t) -> (i,) <$> substitute t tau
 
