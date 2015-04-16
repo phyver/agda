@@ -66,7 +66,7 @@ data Order
     -- ^ No relation, infinite increase, or increase beyond termination depth.
   | Mat {-# UNPACK #-} !(Matrix Int Order)
     -- ^ Matrix-shaped order, currently UNUSED.
-  deriving (Eq,Ord)
+  deriving (Eq)
 
 instance Show Order where
   show (Decr k) = show (- k)
@@ -75,6 +75,18 @@ instance Show Order where
 
 instance HasZero Order where
   zeroElement = Unknown
+
+-- | Information order: 'Unknown' is least information.
+--   The more we decrease, the more information we have.
+instance Ord Order where
+  compare o o' = case (o, o') of
+    (Unknown, Unknown) -> EQ
+    (Unknown, _      ) -> LT
+    (_      , Unknown) -> GT
+    (Decr k , Decr l ) -> compare k l
+    -- Matrix-shaped orders are no longer supported
+    (Mat{}  , _      ) -> __IMPOSSIBLE__
+    (_      , Mat{}  ) -> __IMPOSSIBLE__
 
 -- | Information order: 'Unknown' is least information.
 --   The more we decrease, the more information we have.
