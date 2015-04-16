@@ -240,6 +240,7 @@ library
                     Agda.Termination.CallDecoration
                     Agda.Termination.CallGraph
                     Agda.Termination.CallMatrix
+                    Agda.Termination.CallToMatrix
                     Agda.Termination.CutOff
                     Agda.Termination.Inlining
 --                    Agda.Termination.Lexicographic -- RETIRED
