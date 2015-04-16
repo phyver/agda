@@ -177,6 +177,17 @@ comparableOrd x y = fromOrdering $ compare x y
 related :: PartialOrd a => a -> PartialOrdering -> a -> Bool
 related a o b = comparable a b `leqPO` o
 
+-- | If we have a function @leq@ charaterizing a partial order,
+--   we can derive @comparable@.
+
+fromLeq :: (a -> a -> Bool) -> Comparable a
+fromLeq leq a b =
+  case (leq a b, leq b a) of
+    (True , True ) -> POEQ
+    (True , False) -> POLT
+    (False, True ) -> POGT
+    (False, False) -> POAny
+
 -- * Totally ordered types.
 
 instance PartialOrd Int where
