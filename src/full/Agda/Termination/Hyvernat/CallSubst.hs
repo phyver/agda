@@ -1,7 +1,16 @@
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE TupleSections #-}
 
-module Calls where
+-- | Pierre Hyvernat's refinement of size-change termination.
+--   See
+--
+--      Pierre Hyvernat,
+--      The Size-Change Termination Principle for Constructor Based Languages
+--      LMCS 2013
+--
+--  TODO: give an introduction by a relevant example here.
+
+module Agda.Termination.Hyvernat.CallSubst where
 
 import Control.Arrow (first, second)
 
@@ -9,6 +18,8 @@ import Data.List
 import Data.Monoid
 import Data.Functor
 import Data.Traversable (forM)
+
+import Agda.Utils.PartialOrd
 
 type Depth = Int  -- ^ cutoff for constructor/destructor depth
 type Bound = Int  -- ^ cutoff for weight
@@ -76,12 +87,12 @@ instance Show Term where
 
 -- | A call is a substitution of the arguments by terms.
 
-newtype Call = Call { theCall :: [(Var , Term)] }
+newtype CallSubst = CallSubst { callSubst :: [(Var , Term)] }
     -- NOTE: could be also just [Term]
 
-print_call :: Call -> IO ()
-print_call (Call []) = putStr ""
-print_call (Call ((i,t):c)) = putStr "x_" >> (putStr $ show i) >> putStr " := " >> print t >> putStrLn "" >> print_call (Call c)
+print_call :: CallSubst -> IO ()
+print_call (CallSubst []) = putStr ""
+print_call (CallSubst ((i,t):c)) = putStr "x_" >> (putStr $ show i) >> putStr " := " >> print t >> putStrLn "" >> print_call (CallSubst c)
 
 -- | Collapse the weight of an approximation.
 
@@ -108,7 +119,7 @@ suffix l1 l2 = rev_prefix (reverse l1) (reverse l2) []
   -- TODO: Maybe move to Agda.Utils.List
 
 -- | Approximates b1 b2 == True when b1 is an approximation of b2.
---   Written @b2 <= b1@ (@b2@ is more informative than @b1@).
+--   Written @b1 <= b2@ (@b2@ is more informative than @b1@).
 approximates_destructors :: Branch -> Branch -> Bool
 approximates_destructors (Branch w1 ds1 x1) (Branch w2 ds2 x2)
   | x1 == x2  = case suffix ds1 ds2 of
@@ -138,7 +149,7 @@ reduce_approx w (Record l) = nub_max $ concat $ map (reduce_approx (w <> (Number
 reduce_approx w (Approx bs) = nub_max $ map (\(Branch w' ds i) -> (Branch (w <> w') ds i)) bs
 reduce_approx w (Exact ds i) = [ Branch w ds i ]
 
--- | Partial order @approximates t1 t2@ iff @t2 <= t1@.
+-- | Partial order @approximates t1 t2@ iff @t1 <= t2@.
 approximates :: Term -> Term -> Bool
 approximates (Exact ds1 i1) (Exact ds2 i2)
   | ds1 == ds2 && i1 == i2 = True
@@ -154,8 +165,15 @@ approximates (Approx b1s) (Approx b2s) = all (\x -> any (\y -> approximates_dest
 approximates (Approx b1s) u2 = approximates (Approx b1s) (Approx $ reduce_approx (Number 0) u2)
 approximates _ _ = False
 
+-- | The lesser term is the one with less information.
+--   Call graph completion keeps the worst calls
+--   (those that endanger termination),
+--   which corresponds to terms with least information.
 
--- | @compatible t1 t2@ if exists @t0@ such that @t0 <= t1@ and @t0 <= t2@
+instance PartialOrd Term where
+  comparable = fromLeq approximates
+
+-- | @compatible t1 t2@ if exists @t0@ such that @t1 <= t0@ and @t2 <= t0@
 compatible :: Term -> Term -> Bool
 compatible (Exact ds1 i1) (Exact ds2 i2) = ds1 == ds2 && i1 == i2
 compatible (Const c1 u1) (Const c2 u2)
@@ -172,16 +190,16 @@ compatible _ _ = False
 
 
 -- | Lookup in a substitution (call).  Partial because of partial application.
-get_term :: Call -> Var -> Term
-get_term (Call tau) i =
+get_term :: CallSubst -> Var -> Term
+get_term (CallSubst tau) i =
   case lookup i tau of
     Just t  -> t
     Nothing -> Approx []  -- TODO: correct?
 
 -- | Pointwise approximation order for calls.
-approximates_call :: Call -> Call -> Bool
+approximates_call :: CallSubst -> CallSubst -> Bool
 approximates_call tau sigma =
-  let indices = map fst $ theCall tau in
+  let indices = map fst $ callSubst tau in
   -- let indices2 = map fst sigma in
   -- if indices /= indices2 then error "PROBLEM..." else
   all (\i -> approximates (get_term tau i) (get_term sigma i)) indices
@@ -189,12 +207,20 @@ approximates_call tau sigma =
 -- TODO: Isolate common pattern of these functions.
 
 -- | Pointwise compatibility for calls.
-compatible_call :: Call -> Call -> Bool
+compatible_call :: CallSubst -> CallSubst -> Bool
 compatible_call tau sigma =
-  let indices = map fst $ theCall tau in
+  let indices = map fst $ callSubst tau in
   -- let indices2 = map fst sigma in
   -- if indices /= indices2 then error "PROBLEM..." else
   all (\i -> compatible (get_term tau i) (get_term sigma i)) indices
+
+-- | The lesser term is the one with less information.
+--   Call graph completion keeps the worst calls
+--   (those that endanger termination),
+--   which corresponds to terms with least information.
+
+instance PartialOrd CallSubst where
+  comparable = fromLeq approximates_call
 
 -- | @get_subtree@ is inside the @Maybe@ monad to deal with impossible cases.
 get_subtree :: [Destructor] -> Term -> Maybe Term
@@ -214,7 +240,7 @@ get_subtree _ _ = error "TYPING PROBLEM"
 
 -- | Given a term and a substitution (call), apply the substitution.
 
-substitute :: Term -> Call -> Maybe Term
+substitute :: Term -> CallSubst -> Maybe Term
 substitute (Const c u) tau = Const c <$> substitute u tau
 substitute (Record r) tau | let (labels, terms) = unzip r =
   Record . zip labels <$> mapM (`substitute` tau) terms
@@ -266,17 +292,17 @@ collapse d b u = collapse1 b $ collapse2 d $ collapse3 d u
 
 -- | Collapsing a call.
 
-collapse_call :: Depth -> Bound -> Call -> Call
-collapse_call d b (Call tau) = Call $ map (second (collapse d b)) tau
+collapse_call :: Depth -> Bound -> CallSubst -> CallSubst
+collapse_call d b (CallSubst tau) = CallSubst $ map (second (collapse d b)) tau
 
--- | Call composition (partial).
+-- | CallSubst composition (partial).
 
-compose :: Depth -> Bound -> Call -> Call -> Maybe Call
-compose d b tau (Call sigma) = collapse_call d b . Call <$> do
+compose :: Depth -> Bound -> CallSubst -> CallSubst -> Maybe CallSubst
+compose d b tau (CallSubst sigma) = collapse_call d b . CallSubst <$> do
   forM sigma $ \ (i,t) -> (i,) <$> substitute t tau
 
-is_decreasing :: Call -> Bool
-is_decreasing tau = any decr $ theCall tau
+is_decreasing :: CallSubst -> Bool
+is_decreasing tau = any decr $ callSubst tau
   where
   isOK ds t i = approximates (Approx [Branch (Number (-1)) ds i]) t
   decr (i,t) = aux [] t

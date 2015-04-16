@@ -251,6 +251,8 @@ library
                     Agda.Termination.Semiring
                     Agda.Termination.TermCheck
                     Agda.Termination.Termination
+                    Agda.Termination.Hyvernat.CallSubst
+                    Agda.Termination.Hyvernat.CallSubst.Tests
                     Agda.Tests
                     Agda.TheTypeChecker
                     Agda.TypeChecking.Abstract
