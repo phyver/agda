@@ -59,15 +59,15 @@ import Data.List (partition)
 -- This criterion is strictly more liberal than searching for a
 -- lexicographic order (and easier to implement, but harder to justify).
 
-terminates :: (Monoid cinfo, ?cutoff :: CutOff) => CallGraph cinfo -> Either cinfo ()
+terminates :: (Monoid cinfo, ?cutoff :: CutOff) => CallGraph CallMatrix cinfo -> Either cinfo ()
 terminates cs = checkIdems $ endos $ toList $ complete cs
 
 terminatesFilter :: (Monoid cinfo, ?cutoff :: CutOff) =>
-  (Node -> Bool) -> CallGraph cinfo -> Either cinfo ()
+  (Node -> Bool) -> CallGraph CallMatrix cinfo -> Either cinfo ()
 terminatesFilter f cs = checkIdems $ endos $ filter f' $ toList $ complete cs
   where f' c = f (source c) && f (target c)
 
-endos :: [Call cinfo] -> [CallMatrixAug cinfo]
+endos :: [Call CallMatrix cinfo] -> [CallMatrixAug cinfo]
 endos cs = [ m | c <- cs, source c == target c
                , m <- CMSet.toList $ callMatrixSet c
            ]
@@ -104,11 +104,11 @@ hasDecrease = any isDecr . diagonal
 
 -- | The call graph instantiation used by the examples below.
 
-type CG = CallGraph ()
+type CG = CallGraph CallMatrix ()
 
 -- | Constructs a call graph.  No meta info.
 
-buildCallGraph :: [Call ()] -> CG
+buildCallGraph :: [Call CallMatrix ()] -> CG
 buildCallGraph = fromList
 
 -- | An example to test whether @DontCutOff@ loops.

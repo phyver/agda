@@ -89,17 +89,17 @@ type Node = Int
 --   It can be labelled with several call matrices if there
 --   are several pathes from one function to another.
 
-type Call cinfo = Edge Node Node (CMSet CallMatrix cinfo)
+type Call cm cinfo = Edge Node Node (CMSet cm cinfo)
 
-callMatrixSet :: Call cinfo -> CMSet CallMatrix cinfo
+callMatrixSet :: Call cm cinfo -> CMSet cm cinfo
 callMatrixSet = label
 
 -- | Make a call with a single matrix.
-mkCall :: Node -> Node -> CallMatrix -> cinfo -> Call cinfo
+mkCall :: Node -> Node -> cm -> cinfo -> Call cm cinfo
 mkCall s t m cinfo = Edge s t $ singleton $ CallDeco m cinfo
 
 -- | Make a call with empty @cinfo@.
-mkCall' :: Monoid cinfo => Node -> Node -> CallMatrix -> Call cinfo
+mkCall' :: Monoid cinfo => Node -> Node -> cm -> Call cm cinfo
 mkCall' s t m = mkCall s t m mempty
 
 -- | 'Call' combination.
@@ -108,7 +108,7 @@ mkCall' s t m = mkCall s t m mempty
 --
 --   Precondition: @source c1 == target c2@
 
-instance Monoid cinfo => CallComb (Call cinfo) where
+instance (PartialOrd cm, CallComb cm, Monoid cinfo) => CallComb (Call cm cinfo) where
   c1 >*< c2 | g == g' = Edge f h (label c1 >*< label c2)
     where f  = source c2
           g  = target c2
@@ -124,50 +124,50 @@ instance Monoid cinfo => CallComb (Call cinfo) where
 -- meta information for different calls can be combined when the calls
 -- are combined.
 
-newtype CallGraph cinfo = CallGraph { theCallGraph :: Graph Node Node (CMSet CallMatrix cinfo) }
+newtype CallGraph cm cinfo = CallGraph { theCallGraph :: Graph Node Node (CMSet cm cinfo) }
   deriving (Show)
 
 
 -- | Returns all the nodes with incoming edges.  Somewhat expensive. @O(e)@.
 
-targetNodes :: CallGraph cinfo -> Set Node
+targetNodes :: CallGraph cm cinfo -> Set Node
 targetNodes = Graph.targetNodes . theCallGraph
 
 -- | Converts a call graph to a list of calls with associated meta
 --   information.
 
-toList :: CallGraph cinfo -> [Call cinfo]
+toList :: CallGraph cm cinfo -> [Call cm cinfo]
 toList = Graph.edges . theCallGraph
 
 -- | Converts a list of calls with associated meta information to a
 --   call graph.
 
-fromList :: Monoid cinfo => [Call cinfo] -> CallGraph cinfo
+fromList :: (PartialOrd cm, Monoid cinfo) => [Call cm cinfo] -> CallGraph cm cinfo
 fromList = CallGraph . Graph.fromListWith CMSet.union
 
 -- | 'null' checks whether the call graph is completely disconnected.
-instance Null (CallGraph cinfo) where
+instance Null (CallGraph cm cinfo) where
   empty = CallGraph Graph.empty
   null  = List.all (null . label) . toList
 
 -- | Takes the union of two call graphs.
 
-union :: Monoid cinfo
-      => CallGraph cinfo -> CallGraph cinfo -> CallGraph cinfo
+union :: (PartialOrd cm, Monoid cinfo)
+      => CallGraph cm cinfo -> CallGraph cm cinfo -> CallGraph cm cinfo
 union (CallGraph cs1) (CallGraph cs2) = CallGraph $
   Graph.unionWith CMSet.union cs1 cs2
 
 -- | 'CallGraph' is a monoid under 'union'.
 
-instance Monoid cinfo => Monoid (CallGraph cinfo) where
+instance (PartialOrd cm, Monoid cinfo) => Monoid (CallGraph cm cinfo) where
   mempty  = empty
   mappend = union
 
 -- | Inserts a call into a call graph.
 
-insert :: Monoid cinfo
-       => Node -> Node -> CallMatrix -> cinfo
-       -> CallGraph cinfo -> CallGraph cinfo
+insert :: (PartialOrd cm, Monoid cinfo)
+       => Node -> Node -> cm -> cinfo
+       -> CallGraph cm cinfo -> CallGraph cm cinfo
 insert s t cm cinfo = CallGraph . Graph.insertEdgeWith CMSet.union e . theCallGraph
   where e = mkCall s t cm cinfo
 
@@ -184,7 +184,7 @@ instance PartialOrd a => CombineNewOld (Favorites a) where
   combineNewOld new old = (new', Fav.unionCompared (new', old'))
     where (new', old') = Fav.compareFavorites new old
 
-deriving instance CombineNewOld (CMSet CallMatrix cinfo)
+deriving instance (PartialOrd cm, CallComb cm) => CombineNewOld (CMSet cm cinfo)
 
 instance (Monoid a, CombineNewOld a, Ord s, Ord t) => CombineNewOld (Graph s t a) where
   combineNewOld new old = Graph.unzip $ Graph.unionWith comb new' old'
@@ -207,13 +207,13 @@ instance (Monoid a, CombineNewOld a, Ord s, Ord t) => CombineNewOld (Graph s t a
 -- GHC supports implicit-parameter constraints in instance declarations
 -- only from 7.4.  To maintain compatibility with 7.2, we skip this instance:
 -- KEEP:
--- instance (Monoid cinfo, ?cutoff :: CutOff) => CombineNewOld (CallGraph cinfo) where
+-- instance (Monoid cinfo, ?cutoff :: CutOff) => CombineNewOld (CallGraph cm cinfo) where
 --   combineNewOld (CallGraph new) (CallGraph old) = CallGraph -*- CallGraph $ combineNewOld comb old
 --     -- combined calls:
 --     where comb = Graph.composeWith (>*<) CMSet.union new old
 
 -- Non-overloaded version:
-combineNewOldCallGraph :: (Monoid cinfo, ?cutoff :: CutOff) => CombineNewOldT (CallGraph cinfo)
+combineNewOldCallGraph :: (PartialOrd cm, CallComb cm, Monoid cinfo, ?cutoff :: CutOff) => CombineNewOldT (CallGraph cm cinfo)
 combineNewOldCallGraph (CallGraph new) (CallGraph old) = CallGraph -*- CallGraph $ combineNewOld comb old
     -- combined calls:
     where comb = Graph.composeWith (>*<) CMSet.union new old
@@ -232,11 +232,11 @@ combineNewOldCallGraph (CallGraph new) (CallGraph old) = CallGraph -*- CallGraph
 -- complete if it contains all indirect calls; if @f -> g@ and @g ->
 -- h@ are present in the graph, then @f -> h@ should also be present.
 
-complete :: (?cutoff :: CutOff) => Monoid cinfo => CallGraph cinfo -> CallGraph cinfo
+complete :: (?cutoff :: CutOff) => (PartialOrd cm, CallComb cm, Monoid cinfo) => CallGraph cm cinfo -> CallGraph cm cinfo
 complete cs = repeatWhile (mapFst (not . null) . completionStep cs) cs
 
-completionStep :: (?cutoff :: CutOff) => Monoid cinfo =>
-  CallGraph cinfo -> CallGraph cinfo -> (CallGraph cinfo, CallGraph cinfo)
+completionStep :: (?cutoff :: CutOff) => (PartialOrd cm, CallComb cm, Monoid cinfo) =>
+  CallGraph cm cinfo -> CallGraph cm cinfo -> (CallGraph cm cinfo, CallGraph cm cinfo)
 completionStep gOrig gThis = combineNewOldCallGraph gOrig gThis
 
 -- prop_complete :: (?cutoff :: CutOff) => Property
@@ -246,7 +246,7 @@ completionStep gOrig gThis = combineNewOldCallGraph gOrig gThis
 
 -- -- | Returns 'True' iff the call graph is complete.
 
--- isComplete :: (Ord cinfo, Monoid cinfo, ?cutoff :: CutOff) => CallGraph cinfo -> Bool
+-- isComplete :: (Ord cinfo, Monoid cinfo, ?cutoff :: CutOff) => CallGraph cm cinfo -> Bool
 -- isComplete s = (s `union` (s `combine` s)) `notWorse` s
 
 ------------------------------------------------------------------------
@@ -255,7 +255,7 @@ completionStep gOrig gThis = combineNewOldCallGraph gOrig gThis
 
 -- | Displays the recursion behaviour corresponding to a call graph.
 
-instance Pretty cinfo => Pretty (CallGraph cinfo) where
+instance (Pretty cm, Pretty cinfo) => Pretty (CallGraph cm cinfo) where
   pretty = vcat . map prettyCall . toList
     where
     prettyCall e = if null (callMatrixSet e) then empty else align 20 $
@@ -266,7 +266,7 @@ instance Pretty cinfo => Pretty (CallGraph cinfo) where
 
 -- -- | Displays the recursion behaviour corresponding to a call graph.
 
--- prettyBehaviour :: Show cinfo => CallGraph cinfo -> Doc
+-- prettyBehaviour :: Show cinfo => CallGraph cm cinfo -> Doc
 -- prettyBehaviour = vcat . map prettyCall . filter toSelf . toList
 --   where
 --   toSelf c = source c == target c
@@ -283,7 +283,7 @@ instance Pretty cinfo => Pretty (CallGraph cinfo) where
 
 -- | Generates a call graph.
 
-callGraph :: (Monoid cinfo, Arbitrary cinfo) => Gen (CallGraph cinfo)
+callGraph :: (Monoid cinfo, Arbitrary cinfo) => Gen (CallGraph CallMatrix cinfo)
 callGraph = do
   indices <- fmap List.nub arbitrary
   n <- natural

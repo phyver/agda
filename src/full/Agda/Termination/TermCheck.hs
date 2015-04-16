@@ -89,7 +89,7 @@ import Agda.Utils.Impossible
 
 -- | Call graph with call info for composed calls.
 
-type Calls = CallGraph CallPath
+type Calls = CallGraph CallMatrix CallPath
 
 -- | The result of termination checking a module.
 --   Must be a 'Monoid' and have 'Singleton'.
