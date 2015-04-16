@@ -857,20 +857,22 @@ function g es = ifM (terGetInlineWithFunctions `and2M` do isJust <$> isWithFunct
            forM es $
               etaContract <=< traverse reduceCon <=< instantiateFull
 
+         -- Compute the new guardedness.
+
+         -- only a delayed definition can be guarded
+         let ifDelayed o | Order.decreasing o && delayed == NotDelayed = Order.le
+                         | otherwise                                   = o
+             guarded' = ifDelayed guarded
+         liftTCM $ reportSLn "term.guardedness" 20 $
+           "composing with guardedness " ++ show guarded ++
+           " counting as " ++ show guarded'
+
          -- Compute the call matrix.
 
          -- Andreas, 2014-03-26 only 6% of termination time for library test
          -- spent on call matrix generation
-         (nrows, ncols, matrix) <- billTo [Benchmark.Termination, Benchmark.Compare] $ compareArgs es
-         -- only a delayed definition can be guarded
-         let ifDelayed o | Order.decreasing o && delayed == NotDelayed = Order.le
-                         | otherwise                                  = o
-         liftTCM $ reportSLn "term.guardedness" 20 $
-           "composing with guardedness " ++ show guarded ++
-           " counting as " ++ show (ifDelayed guarded)
-         cutoff <- terGetCutOff
-         let ?cutoff = cutoff
-         let matrix' = composeGuardedness (ifDelayed guarded) matrix
+         cm <- billTo [Benchmark.Termination, Benchmark.Compare] $
+           elimsToCall guarded' es
 
          -- Andreas, 2013-04-26 FORBIDDINGLY expensive!
          -- This PrettyTCM QName cost 50% of the termination time for std-lib!!
@@ -889,7 +891,6 @@ function g es = ifM (terGetInlineWithFunctions `and2M` do isJust <$> isWithFunct
 
          let src  = fromMaybe __IMPOSSIBLE__ $ List.elemIndex f names
              tgt  = gInd
-             cm   = makeCM ncols nrows matrix'
              info = CallPath [CallInfo
                       { callInfoTarget = g
                       , callInfoRange  = getRange g

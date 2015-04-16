@@ -79,6 +79,18 @@ import qualified Agda.Utils.VarSet as VarSet
 #include "undefined.h"
 import Agda.Utils.Impossible
 
+-- | Entry point.
+--   Turn guardedness and arguments (eliminations) of a call into a call matrix.
+class ElimsToCall a where
+  elimsToCall :: Order -> [Elim] -> TerM a
+
+instance ElimsToCall CallMatrix where
+  elimsToCall g es = do
+    cutoff <- terGetCutOff
+    let ?cutoff = cutoff
+    (nr, nc, m) <- compareArgs es
+    return $ makeCM nr nc $ composeGuardedness g m
+
 {- | @compareArgs es@
 
      Compare the list of de Bruijn patterns (=parameters) @pats@
