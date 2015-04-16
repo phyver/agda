@@ -136,7 +136,18 @@ instance HasZero a => Diagonal (CallMatrix' a) a where
 --   @m1 >*< m2@ has dimensions @ar(h) × ar(f)@.
 
 instance CallComb CallMatrix where
-  callComb (CallMatrix m1) (CallMatrix m2) = Just $ CallMatrix $ mul orderSemiring m2 m1
+  CallMatrix m1 >*< CallMatrix m2 = CallMatrix $ mul orderSemiring m2 m1
+
+-- | A call @c@ is idempotent if it is an endo (@'source' == 'target'@)
+--   of order 1.
+--   (Endo-calls of higher orders are e.g. argument permutations).
+--   We can test idempotency by self-composition.
+--   Self-composition @c >*< c@ should not make any parameter-argument relation
+--   worse.
+
+instance Idempotent CallMatrix where
+  idempotent m = (m >*< m) `notWorse` m
+  hasDecrease  = any isDecr . diagonal
 
 {- UNUSED, BUT DON'T REMOVE!
 -- | Call matrix addition = minimum = pick worst information.

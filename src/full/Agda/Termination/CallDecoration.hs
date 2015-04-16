@@ -22,8 +22,8 @@ import Data.Traversable (Traversable)
 import qualified Data.Traversable as Trav
 
 import Agda.Termination.CutOff
-import Agda.Termination.Order as Order hiding (tests)
-import Agda.Termination.SparseMatrix as Matrix hiding (tests)
+import Agda.Termination.Order as Order
+import Agda.Termination.SparseMatrix as Matrix
 import Agda.Termination.Semiring (HasZero(..), Semiring)
 import qualified Agda.Termination.Semiring as Semiring
 
@@ -31,11 +31,10 @@ import Agda.Utils.Favorites (Favorites)
 import qualified Agda.Utils.Favorites as Fav
 import Agda.Utils.Monad
 import Agda.Utils.Null
-import Agda.Utils.PartialOrd hiding (tests)
+import Agda.Utils.PartialOrd
 import Agda.Utils.Pretty hiding ((<>))
 import Agda.Utils.QuickCheck
 import Agda.Utils.Singleton
-import Agda.Utils.TestHelpers
 
 #include "undefined.h"
 import Agda.Utils.Impossible
@@ -49,6 +48,13 @@ class CallComb a where
 
   callComb x y = Just $ x >*< y
   x >*< y = fromMaybe __IMPOSSIBLE__ $ callComb x y
+
+-- | Idempotent calls (calls of order 1)
+--   and the SCT criterion on completed call graphs..
+
+class CallComb a => Idempotent a where
+  idempotent  :: (?cutoff :: CutOff) => a -> Bool
+  hasDecrease :: (?cutoff :: CutOff) => a -> Bool
 
 ------------------------------------------------------------------------
 -- * Call decoration augmented with path information.
@@ -67,6 +73,10 @@ instance PartialOrd cm => PartialOrd (CallDeco cm cinfo) where
 
 instance NotWorse cm => NotWorse (CallDeco cm cinfo) where
   c1 `notWorse` c2 = augCallM c1 `notWorse` augCallM c2
+
+instance (Idempotent cm, Monoid cinfo) => Idempotent (CallDeco cm cinfo) where
+  idempotent  = idempotent  . augCallM
+  hasDecrease = hasDecrease . augCallM
 
 -- | Augmented call matrix multiplication.
 

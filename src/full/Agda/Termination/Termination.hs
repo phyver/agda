@@ -26,6 +26,7 @@ import Agda.Termination.SparseMatrix
 import Agda.Utils.Either
 import Agda.Utils.List
 import Agda.Utils.Maybe
+import Agda.Utils.PartialOrd
 import Agda.Utils.TestHelpers hiding (idempotent)
 import Agda.Utils.QuickCheck
 
@@ -59,39 +60,24 @@ import Data.List (partition)
 -- This criterion is strictly more liberal than searching for a
 -- lexicographic order (and easier to implement, but harder to justify).
 
-terminates :: (Monoid cinfo, ?cutoff :: CutOff) => CallGraph CallMatrix cinfo -> Either cinfo ()
+terminates :: (PartialOrd cm, Idempotent cm, Monoid cinfo, ?cutoff :: CutOff) => CallGraph cm cinfo -> Either cinfo ()
 terminates cs = checkIdems $ endos $ toList $ complete cs
 
-terminatesFilter :: (Monoid cinfo, ?cutoff :: CutOff) =>
-  (Node -> Bool) -> CallGraph CallMatrix cinfo -> Either cinfo ()
+terminatesFilter :: (PartialOrd cm, Idempotent cm, Monoid cinfo, ?cutoff :: CutOff) =>
+  (Node -> Bool) -> CallGraph cm cinfo -> Either cinfo ()
 terminatesFilter f cs = checkIdems $ endos $ filter f' $ toList $ complete cs
   where f' c = f (source c) && f (target c)
 
-endos :: [Call CallMatrix cinfo] -> [CallMatrixAug cinfo]
+endos :: [Call cm cinfo] -> [CallDeco cm cinfo]
 endos cs = [ m | c <- cs, source c == target c
                , m <- CMSet.toList $ callMatrixSet c
            ]
 
-checkIdems :: (Monoid cinfo, ?cutoff :: CutOff) => [CallMatrixAug cinfo] -> Either cinfo ()
+checkIdems :: (Idempotent cm, Monoid cinfo, ?cutoff :: CutOff) => [CallDeco cm cinfo] -> Either cinfo ()
 checkIdems calls = caseMaybe (headMaybe offending) (Right ()) $ Left . augCallInfo
   where
     -- Every idempotent call must have decrease, otherwise it offends us.
     offending = filter (not . hasDecrease) $ filter idempotent calls
-
-checkIdem :: (?cutoff :: CutOff) => CallMatrixAug cinfo -> Bool
-checkIdem c = if idempotent c then hasDecrease c else True
-
--- | A call @c@ is idempotent if it is an endo (@'source' == 'target'@)
---   of order 1.
---   (Endo-calls of higher orders are e.g. argument permutations).
---   We can test idempotency by self-composition.
---   Self-composition @c >*< c@ should not make any parameter-argument relation
---   worse.
-idempotent  :: (?cutoff :: CutOff) => CallMatrixAug cinfo -> Bool
-idempotent (CallDeco m _) = (m >*< m) `notWorse` m
-
-hasDecrease :: (?cutoff :: CutOff) => CallMatrixAug cinfo -> Bool
-hasDecrease = any isDecr . diagonal
 
 ------------------------------------------------------------------------
 -- Some examples

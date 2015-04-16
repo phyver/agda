@@ -1,5 +1,6 @@
-{-# LANGUAGE PatternGuards #-}
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE PatternGuards  #-}
+{-# LANGUAGE TupleSections  #-}
 
 -- | Pierre Hyvernat's refinement of size-change termination.
 --   See
@@ -18,6 +19,9 @@ import Data.List
 import Data.Monoid
 import Data.Functor
 import Data.Traversable (forM)
+
+import Agda.Termination.CutOff
+import Agda.Termination.CallDecoration
 
 import Agda.Utils.PartialOrd
 
@@ -301,6 +305,11 @@ compose :: Depth -> Bound -> CallSubst -> CallSubst -> Maybe CallSubst
 compose d b tau (CallSubst sigma) = collapse_call d b . CallSubst <$> do
   forM sigma $ \ (i,t) -> (i,) <$> substitute t tau
 
+instance CallComb CallSubst where
+  callComb tau sigma = compose (d * 2) d tau sigma
+    where CutOff d = ?cutoff
+  -- *2 because of the layer of tuples
+
 is_decreasing :: CallSubst -> Bool
 is_decreasing tau = any decr $ callSubst tau
   where
@@ -309,3 +318,8 @@ is_decreasing tau = any decr $ callSubst tau
     where aux ds (Const c u) = isOK ds t i || aux ((Case c):ds) u
           aux ds (Record r) = isOK ds t i || any (\(n,u) -> aux ((Proj n):ds) u) r
           aux ds t = isOK ds t i
+
+
+instance Idempotent CallSubst where
+  idempotent tau = maybe False (compatible_call tau) (callComb tau tau)
+  hasDecrease = is_decreasing
