@@ -113,8 +113,9 @@ import Data.Traversable
 -- import Agda.Termination.CutOff
 -- import Agda.Termination.CallDecoration
 
-import Agda.Utils.Singleton
 import Agda.Utils.Pretty as P
+import Agda.Utils.PartialOrd
+import Agda.Utils.Singleton
 
 #include "undefined.h"
 import Agda.Utils.Impossible
@@ -134,7 +135,8 @@ data Elim' n p
 
 type Elim n a = Elim' n (Pat n a)
 
-type Elims n a = [Elim n a]
+newtype Elims n a = Elims { theElims :: [Elim n a] }
+  deriving (Eq, Ord, Functor, Foldable, Traversable)
 
 -- | Call eliminations are truncated if exceeding the maximum depth.
 --   Otherwise, they could grow indefinitely, e.g. @f --> tail f@.
@@ -176,18 +178,23 @@ applyElim (Apply p) = Just p
 applyElim Proj{}    = Nothing
 
 applyElims :: Elims n a -> [Pat n a]
-applyElims = catMaybes . map applyElim
+applyElims = catMaybes . map applyElim . theElims
 
 mapCallElims :: (Elims n a -> Elims n a) -> CallElims n a -> CallElims n a
 mapCallElims f (CallElims e t) = CallElims (f e) t
 
+appendElims :: Elims n a -> Elims n a -> Elims n a
+appendElims (Elims es1) (Elims es2) = Elims $ es1 ++ es2
+
 -- | If we are truncated already, we do not append eliminations.
-appendElims :: CallElims n a -> Elims n a -> CallElims n a
-appendElims ce@(CallElims e t) e' = if t then ce else CallElims (e ++ e') t
+appendCallElims :: CallElims n a -> Elims n a -> CallElims n a
+appendCallElims ce@(CallElims (Elims e) t) (Elims e') =
+  if t then ce else CallElims (Elims $ e ++ e') t
 
 -- | If we have to drop arguments, we need to set 'truncated' to true.
 takeElims :: Int -> CallElims n a -> CallElims n a
-takeElims n ce@(CallElims e t) = CallElims e' $ t || not (null rest)
+takeElims n ce@(CallElims (Elims e) t) =
+  CallElims (Elims e') $ t || not (null rest)
   where (e',rest) = splitAt n e
 
 -- * Substitution
@@ -211,14 +218,14 @@ instance Inst Pat where
     --   Apply p -> Apply $ inst s p
     --   Proj{}  -> e
 
--- instance Inst Elims where
---   inst s = map (inst s)
+instance Inst Elims where
+  inst s (Elims e) = Elims $ map (fmap $ inst s) e
 
 instance Inst CallElims where
-  inst s (CallElims e t) = CallElims (fmap (inst s) <$> e) t
+  inst s (CallElims e t) = CallElims (inst s e) t
 
 instCall :: Sol n Int -> CallUnify n -> CallUnify n
-instCall s (CallUnify n p e) = CallUnify n (fmap (inst s) <$> p) (inst s e)
+instCall s (CallUnify n p e) = CallUnify n (inst s p) (inst s e)
 
 -- * Unification
 
@@ -263,11 +270,13 @@ type Rest n a = Either (Elims n a) (Elims n a)
 
 -- | Returns the rest of the longer elim chain, if the shorter ends in @More@.
 unifyEs :: (Eq n, Variable a) => Elims n a -> Elims n a -> Unify n a (Rest n a)
-unifyEs es1 es2 =
-  case (es1, es2) of
-    ([], _) -> return $ Right es2
-    (_, []) -> return $ Left  es1
-    (e1:es1, e2:es2) -> unifyE e1 e2 >> unifyEs es1 es2
+unifyEs (Elims es1) (Elims es2) = loop es1 es2
+  where
+    loop es1 es2 =
+      case (es1, es2) of
+        ([], _) -> return $ Right $ Elims es2
+        (_, []) -> return $ Left  $ Elims es1
+        (e1:es1, e2:es2) -> unifyE e1 e2 >> loop es1 es2
 
 -- -- | Returns the rest of the longer elim chain, if the shorter ends in @More@.
 -- unifyEs :: Elims n a -> Elims n a -> Unify n a (Rest n a)
@@ -303,25 +312,25 @@ unifyCEs ps (CallElims es truncated) = do
     Left ps'  -> if not truncated then return r else do
       -- Every variable in the remaining patterns is set to Infty.
       zipWithM_ unify (applyElims ps') (repeat Infty)
-      return $ Left []
+      return $ Left $ Elims []
 
 -- | Compose two calls.  The resulting call in non-canonical, i.e.
 --   may not use all of its declared variables
 compose :: Eq n => CallUnify n -> CallUnify n -> Maybe (CallUnify n)
 compose (CallUnify n1 p1 e1) (CallUnify n2 p2' e2') = do
   -- Freshen variables in second call
-  let p2 = map (fmap (fmap (n1 +))) p2'
-      e2 = mapCallElims (map (fmap (fmap (n1 +)))) e2'
+  let p2 = fmap (n1 +) p2'
+      e2 = mapCallElims (fmap (n1 +)) e2'
   -- Unify the patterns of the second call with the arguments of the first call.
   (r, s) <- unifyCEs p2 e1 `runStateT` Map.empty
   -- Instantiate the composed call.
   return $ instCall s $ case r of
     -- When patterns were left over, these have to be added to the
     -- patterns of the first call.
-    Left ps -> CallUnify (n1 + n2) (p1 ++ ps) e2
+    Left ps -> CallUnify (n1 + n2) (appendElims p1 ps) e2
     -- When call arguments were left over, these have to be added to the
     -- arguments of the second call.
-    Right es -> CallUnify (n1 + n2) p1 (e2 `appendElims` es)
+    Right es -> CallUnify (n1 + n2) p1 (e2 `appendCallElims` es)
 
 -- | Rename variables to use exactly the variables below @n@, for a minimal @n@.
 canonicalize :: CallUnify a -> CallUnify a
@@ -385,16 +394,16 @@ carelessInvert ignore s = Map.fromList $ do
   map (,Var x) $ Set.toList $ ys Set.\\ ignore
 
 truncateCall :: forall n. Depth -> Breadth -> CallUnify n -> CallUnify n
-truncateCall d b (CallUnify n p e) = canonicalize $ CallUnify __IMPOSSIBLE__
-  p' e'
+truncateCall d b (CallUnify n (Elims p) e) = canonicalize $ CallUnify __IMPOSSIBLE__
+  (Elims p') e'
   where
     -- Fresh variable supply.
     fresh = [n,n+1..]
     -- Truncate length of patterns and arguments.
     (p1, p2) = splitAt b p
-    e1     = takeElims b e
+    CallElims (Elims e1) trunc = takeElims b e
     -- Truncate patterns, replacing subpatterns by fresh variables.
-    p' :: Elims n Var
+    p' :: [Elim n Var]
     (p',t) = runWriter $ mapM (mapM $ truncateToVar d) p1 `evalStateT` fresh
     -- Eliminated variables need to be replaced by the new ones
     -- in call arguments.
@@ -406,7 +415,7 @@ truncateCall d b (CallUnify n p e) = canonicalize $ CallUnify __IMPOSSIBLE__
     -- We delete p2, so we have to map its variables to infty
     s2     = Map.fromList $ zip (Set.toList $ vars p2 Set.\\ keep) $ repeat Infty
     s      = Map.union s1 s2
-    e'     = inst s $ mapCallElims (map $ fmap $ truncateToInfty d) e1
+    e'     = inst s $ CallElims (Elims (map (fmap $ truncateToInfty d) e1)) trunc
 
 composeCalls :: Eq n => Depth -> Breadth -> CallUnify n -> CallUnify n -> Maybe (CallUnify n)
 composeCalls d b c1 c2 = truncateCall d b <$> compose c1 c2
@@ -419,6 +428,67 @@ composeCalls d b c1 c2 = truncateCall d b <$> compose c1 c2
 --   callComb c1 c2 = do
 --     let Cutoff d = ?cutoff
 --     truncateCall d <$> compose c1 c2
+
+------------------------------------------------------------------------
+-- * Partial order
+------------------------------------------------------------------------
+
+{- We want to subsume calls for efficiency.
+
+   Prefix pattern subsumes:
+
+    1) Z .tail       --> ..  subsumes
+    2) Z .tail .tail --> ..
+
+  because whenever we can compose with 2, we can compose with 1,
+  and further 1 is worse than 2.
+
+  Prefix eliminations are subsumed:
+
+    1) --> .p     is subsumed by
+    2) --> .p .p
+
+  because 2 can be composed with anything that 1 can be composed with.
+
+   Truncation ... subsumes everything as everything is a prefix of it
+-}
+
+-- | Partial order induced by @p <= Infty@ and @C <= x@.
+instance (Eq n, Eq a) => PartialOrd (Pat n a) where
+  comparable p1 p2 =
+    case (p1, p2) of
+      (Infty, Infty) -> POEQ
+      (_    , Infty) -> POLT
+      (Infty, _    ) -> POGT
+      (Var x, Var y) -> if x == y then POEQ else POAny
+      (Con c1 ps1, Con c2 ps2)
+        | c1 == c2  -> comparable (Pointwise ps1) (Pointwise ps2)
+        | otherwise -> POAny
+      (Con _ [], Var{}) -> POLT
+      (Var{}, Con _ []) -> POGT
+      _ -> POAny
+
+instance (Eq n, Eq a) => PartialOrd (Elim n a) where
+  comparable e1 e2 =
+    case (e1, e2) of
+      (Apply p1, Apply p2) -> comparable p1 p2
+      (Proj q1 , Proj q2 ) -> if q1 == q2 then POEQ else POAny
+      (Apply{} , Proj{}  ) -> POAny
+      (Proj{}  , Apply{} ) -> POAny
+
+instance (Eq n, Eq a) => PartialOrd (CallElims n a) where
+  comparable (CallElims (Elims es1) t1) (CallElims (Elims es2) t2) = loop es1 es2
+    where
+      loop es1 es2 =
+        case (es1, es2) of
+          ([], []) ->
+            case (t1, t2) of
+              (True, False) -> POGT
+              (False, True) -> POLT
+              _             -> POEQ
+          (_, []) -> if t2 then POLT else POGT
+          ([], _) -> if t1 then POGT else POLT
+          (e1:es1, e2:es2) -> comparable (e1, es1) (e2, es2)
 
 ------------------------------------------------------------------------
 -- * Pretty instances
@@ -434,15 +504,15 @@ instance (Pretty n, Pretty p) => Pretty (Elim' n p) where
   pretty (Apply p) = pretty p
   pretty (Proj q)  = text "." P.<> pretty q
 
-prettyElims :: (Pretty n, Pretty a) => Elims n a -> Doc
-prettyElims es = fsep $ map pretty es
+instance (Pretty n, Pretty a) => Pretty (Elims n a) where
+  pretty (Elims es) = fsep $ map pretty es
 
 instance (Pretty n, Pretty a) => Pretty (CallElims n a) where
   pretty (CallElims e t) = if t then d <+> text "..." else d
-    where d = prettyElims e
+    where d = pretty e
 
 instance (Pretty n) => Pretty (CallUnify n) where
-  pretty (CallUnify _ p e) = prettyElims p <+> text "-->" <+> pretty e
+  pretty (CallUnify _ p e) = pretty p <+> text "-->" <+> pretty e
 
 ------------------------------------------------------------------------
 -- * Unit tests
@@ -452,12 +522,12 @@ instance Pretty a => Show a where
   show = prettyShow
 
 cycle1 = CallUnify 0 p $ CallElims e False where
-  p = [ Apply (Con "Z" []     ), Proj "tail" ]
-  e = [ Apply (Con "S" [Infty]), Proj "tail" ]
+  p = Elims [ Apply (Con "Z" []     ), Proj "tail" ]
+  e = Elims [ Apply (Con "S" [Infty]), Proj "tail" ]
 
 cycle2 = CallUnify 1 p $ CallElims e False where
-  p = [ Apply (Con "S" [Var 0]), Proj "tail" ]
-  e = [ Apply (Var 0) ]
+  p = Elims [ Apply (Con "S" [Var 0]), Proj "tail" ]
+  e = Elims [ Apply (Var 0) ]
 
 comb = composeCalls 3 3
 combs cs ds = catMaybes [ comb c d | c <- cs, d <- ds ]
@@ -470,7 +540,8 @@ cs11 = combs cs1 cs1
 step s = Set.union s $ Set.fromList $ combs cs cs
   where cs = Set.toList s
 
-css = List.iterate step $ Set.fromList cs0
+css = iter cs0
+iter = List.iterate step . Set.fromList
 
 final cs = fst . head . dropWhile (uncurry (/=)) $ zip cs (tail cs)
 
@@ -483,3 +554,7 @@ printIt css = forM_ (zip [(0 :: Int)..] css) $ \ (i, s) -> do
 csfinal = mapM_ print $ Set.toList $ final css
 
 run n = printIt $ take n css
+
+incr = CallUnify 0 (Elims []) $ CallElims (Elims [ Proj "p" ]) False
+
+run1 n = printIt $ take n $ iter $ [ incr ]
