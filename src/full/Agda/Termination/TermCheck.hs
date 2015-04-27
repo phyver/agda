@@ -96,9 +96,6 @@ import Agda.Utils.Impossible
 
 type Calls = Graph Int Int [ExtractedCall]
 
-useDotPatterns :: Calls -> Calls
-useDotPatterns = fmap $ map $ mapCallEnv $ \ e -> e { terUseDotPatterns = True }
-
 -- | Process calls into call graphs.
 
 -- callsToCallGraph :: (MonadTCM tcm, ElimsToCall a) => Calls -> tcm (CallGraph a CallPath)
@@ -254,20 +251,13 @@ termMutual' = do
   allNames <- terGetMutual
   calls <- forM' allNames termDef
 
-  -- first try to termination check ignoring the dot patterns
-  calls1 <- callsToCallGraph calls
-  reportCalls "no " calls1
+  -- analyse calls and construct call matrices
+  cms <- callsToCallGraph calls
+  reportCalls cms
 
   cutoff <- terGetCutOff
   let ?cutoff = cutoff
-  r <- billToTerGraph $ Term.terminates calls1
-  r <- case r of
-         r@Right{} -> return r
-         Left{}    -> do
-           -- Try again, but include the dot patterns this time.
-           calls2 <- callsToCallGraph $ useDotPatterns calls
-           reportCalls "" calls2
-           billToTerGraph $ Term.terminates calls2
+  r <- billToTerGraph $ Term.terminates cms
 
   -- @names@ is taken from the 'Abstract' syntax, so it contains only
   -- the names the user has declared.  This is for error reporting.
@@ -297,8 +287,8 @@ billToTerGraph = billPureTo [Benchmark.Termination, Benchmark.Graph]
 
 -- reportCalls :: String -> Calls -> TerM ()
 reportCalls :: (Idempotent cm, Pretty cm, PartialOrd cm, Show cm, Pretty cinfo, Monoid cinfo, Show cinfo) =>
-  String -> CallGraph cm cinfo -> TerM ()
-reportCalls no calls = do
+  CallGraph cm cinfo -> TerM ()
+reportCalls calls = do
    cutoff <- terGetCutOff
    let ?cutoff = cutoff
 
@@ -306,7 +296,7 @@ reportCalls no calls = do
    liftTCM $ do
 
    reportS "term.lex" 20 $ unlines
-     [ "Calls (" ++ no ++ "dot patterns): " ++ show calls
+     [ "Calls: " ++ show calls
      ]
 
    -- Print the whole completion phase.
@@ -341,7 +331,7 @@ reportCalls no calls = do
    --   , nest 2 $ return $ Term.prettyBehaviour calls'
    --   ]
    reportSDoc "term.matrices" 30 $ vcat
-     [ text $ "Idempotent call matrices (" ++ no ++ "dot patterns):\n"
+     [ text $ "Idempotent call matrices:\n"
      , nest 2 $ vcat $ punctuate (text "\n") $ map pretty idems
      ]
    -- reportSDoc "term.matrices" 30 $ vcat
@@ -384,21 +374,13 @@ termFunction name = do
          -- Jump the trampoline.
          return $ Right (todo', done', calls')
 
-   -- First try to termination check ignoring the dot patterns
-   calls1 <- callsToCallGraph calls
-   reportCalls "no " calls1
+   cms <- callsToCallGraph calls
+   reportCalls cms
 
    r <- do
-    cutoff <- terGetCutOff
-    let ?cutoff = cutoff
-    r <- billToTerGraph $ Term.terminatesFilter (== index) calls1
-    case r of
-      Right () -> return $ Right ()
-      Left{}    -> do
-        -- Try again, but include the dot patterns this time.
-        calls2 <- callsToCallGraph $ useDotPatterns calls
-        reportCalls "" calls2
-        billToTerGraph $ mapLeft callInfos $ Term.terminatesFilter (== index) calls2
+     cutoff <- terGetCutOff
+     let ?cutoff = cutoff
+     billToTerGraph $ mapLeft callInfos $ Term.terminatesFilter (== index) cms
 
    names <- terGetUserNames
    case r of
@@ -529,7 +511,6 @@ matchingTarget conf t = maybe (return True) (match t) (currentTarget conf)
 --   The term is first normalized and stripped of all non-coinductive projections.
 
 termToDBP :: Term -> TerM DeBruijnPat
---termToDBP t = ifNotM terGetUseDotPatterns (return unusedVar) $ {- else -} do
 termToDBP t = do
     suc <- terGetSizeSuc
     let

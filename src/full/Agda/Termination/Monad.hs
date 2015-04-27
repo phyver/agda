@@ -81,9 +81,7 @@ data TerEnv = TerEnv
 
   -- First part: options, configuration.
 
-  { terUseDotPatterns :: Bool
-    -- ^ Are we mining dot patterns to find evindence of structal descent?
-  , terGuardingTypeConstructors :: Bool
+  { terGuardingTypeConstructors :: Bool
     -- ^ Do we assume that record and data type constructors
     --   preserve guardedness?
   , terInlineWithFunctions :: Bool
@@ -152,8 +150,7 @@ data TerEnv = TerEnv
 
 defaultTerEnv :: TerEnv
 defaultTerEnv = TerEnv
-  { terUseDotPatterns           = False -- must be False initially!
-  , terGuardingTypeConstructors = False
+  { terGuardingTypeConstructors = False
   , terInlineWithFunctions      = True
   , terSizeSuc                  = Nothing
   , terSharp                    = Nothing
@@ -255,12 +252,6 @@ terGetGuardingTypeConstructors = terAsks terGuardingTypeConstructors
 
 terGetInlineWithFunctions :: TerM Bool
 terGetInlineWithFunctions = terAsks terInlineWithFunctions
-
-terGetUseDotPatterns :: TerM Bool
-terGetUseDotPatterns = terAsks terUseDotPatterns
-
-terSetUseDotPatterns :: Bool -> TerM a -> TerM a
-terSetUseDotPatterns b = terLocal $ \ e -> e { terUseDotPatterns = b }
 
 terGetSizeSuc :: TerM (Maybe QName)
 terGetSizeSuc = terAsks terSizeSuc
