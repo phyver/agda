@@ -278,7 +278,7 @@ highlight_ d = do
 checkTermination_ :: A.Declaration -> TCM ()
 checkTermination_ d = Bench.billTo [Bench.Termination] $ do
   reportSLn "tc.decl" 20 $ "checkDecl: checking termination..."
-  whenM (optTerminationCheck <$> pragmaOptions) $ do
+  whenM (isJust . optTerminationCheck <$> pragmaOptions) $ do
     case d of
       -- Record module definitions should not be termination-checked twice.
       A.RecDef {} -> return ()

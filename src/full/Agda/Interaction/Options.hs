@@ -34,7 +34,7 @@ module Agda.Interaction.Options
     ) where
 
 import Control.Monad            ( when )
-import Data.Maybe               ( isJust )
+import Data.Maybe               ( isJust, isNothing )
 import Data.List                ( isSuffixOf , intercalate )
 import System.Console.GetOpt    ( getOpt, usageInfo, ArgOrder(ReturnInOrder)
                                 , OptDescr(..), ArgDescr(..)
@@ -77,6 +77,13 @@ type IncludeDirs = Either [FilePath] [AbsolutePath]
      -- interpreted as @["."]@ (see
      -- 'Agda.TypeChecking.Monad.Options.makeIncludeDirsAbsolute').
 
+-- | Which termination checker to use.
+data TerminationChecker
+  = SCT        -- ^ Ordinary size-change termination.
+  | Hyvernat   -- ^ Pierre Hyvernat's refined SCT.
+  | CallUnif   -- ^ Experimental CallUnif version of Hyvernat.
+  deriving (Eq, Ord, Show)
+
 data CommandLineOptions = Options
   { optProgramName      :: String
   , optInputFile        :: Maybe FilePath
@@ -117,7 +124,7 @@ data PragmaOptions = PragmaOptions
   , optProofIrrelevance          :: Bool
   , optAllowUnsolved             :: Bool
   , optDisablePositivity         :: Bool
-  , optTerminationCheck          :: Bool
+  , optTerminationCheck          :: Maybe TerminationChecker
   , optTerminationDepth          :: CutOff
     -- ^ Cut off structural order comparison at some depth in termination checker?
   , optCompletenessCheck         :: Bool
@@ -192,7 +199,7 @@ defaultPragmaOptions = PragmaOptions
   , optIrrelevantProjections     = True
   , optAllowUnsolved             = False
   , optDisablePositivity         = False
-  , optTerminationCheck          = True
+  , optTerminationCheck          = defaultTerminationCheck
   , optTerminationDepth          = defaultCutOff
   , optCompletenessCheck         = True
   , optUniverseCheck             = True
@@ -204,6 +211,11 @@ defaultPragmaOptions = PragmaOptions
   , optCopatterns                = False
   , optPatternMatching           = True
   }
+
+-- | The default termination checker.
+
+defaultTerminationCheck :: Maybe TerminationChecker
+defaultTerminationCheck = Just SCT
 
 -- | The default termination depth.
 
@@ -270,7 +282,7 @@ unsafePragmaOptions :: PragmaOptions -> [String]
 unsafePragmaOptions opts =
   [ "--allow-unsolved-metas"                     | optAllowUnsolved opts             ] ++
   [ "--no-positivity-check"                      | optDisablePositivity opts         ] ++
-  [ "--no-termination-check"                     | not (optTerminationCheck opts)    ] ++
+  [ "--no-termination-check"                     | isNothing (optTerminationCheck opts) ] ++
   [ "--no-coverage-check"                        | not (optCompletenessCheck opts)   ] ++
   [ "--type-in-type"                             | not (optUniverseCheck opts)       ] ++
   -- [ "--sized-types"                              | optSizedTypes opts                ] ++
@@ -344,7 +356,13 @@ noPositivityFlag :: Flag PragmaOptions
 noPositivityFlag o = return $ o { optDisablePositivity = True }
 
 dontTerminationCheckFlag :: Flag PragmaOptions
-dontTerminationCheckFlag o = return $ o { optTerminationCheck = False }
+dontTerminationCheckFlag o = return $ o { optTerminationCheck = Nothing }
+
+hyvernatTerminationCheckFlag :: Flag PragmaOptions
+hyvernatTerminationCheckFlag o = return $ o { optTerminationCheck = Just Hyvernat }
+
+unifTerminationCheckFlag :: Flag PragmaOptions
+unifTerminationCheckFlag o = return $ o { optTerminationCheck = Just CallUnif }
 
 dontCompletenessCheckFlag :: Flag PragmaOptions
 dontCompletenessCheckFlag o = return $ o { optCompletenessCheck = False }
@@ -525,6 +543,10 @@ pragmaOptions =
                     "do not warn about not strictly positive data types"
     , Option []     ["no-termination-check"] (NoArg dontTerminationCheckFlag)
                     "do not warn about possibly nonterminating code"
+    , Option []     ["hyvernat-termination-check"] (NoArg hyvernatTerminationCheckFlag)
+                    "use Hyvernat's refined size-change termination checker"
+    , Option []     ["unif-termination-check"] (NoArg unifTerminationCheckFlag)
+                    "use the CallUnif refinement of the size-change termination checker"
     , Option []     ["termination-depth"] (ReqArg terminationDepthFlag "N")
                     "allow termination checker to count decrease/increase upto N (default N=1)"
     , Option []     ["no-coverage-check"] (NoArg dontCompletenessCheckFlag)
