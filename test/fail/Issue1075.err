@@ -16,5 +16,5 @@ Problematic calls:
     (at Issue1075.agda:383,3-7)
   cut⁺ pfΓ (proj₂ pf) (A ∷ []) (V ∷ []) N
     (at Issue1075.agda:431,32-36)
-  lsubst (conspers pfΓ) pf M (wken N)
-    (at Issue1075.agda:434,30-36)
+  lsubst (conssusp pfΓ) pf M (wken N)
+    (at Issue1075.agda:433,30-36)

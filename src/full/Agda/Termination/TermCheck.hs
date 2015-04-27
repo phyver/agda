@@ -46,6 +46,7 @@ import Agda.Termination.CutOff
 import Agda.Termination.Monad
 import Agda.Termination.CallGraph hiding (toList)
 import qualified Agda.Termination.CallGraph as CallGraph
+import Agda.Termination.CallDecoration (Idempotent)
 import Agda.Termination.CallMatrix
 import Agda.Termination.CallToMatrix
 import Agda.Termination.Order     as Order
@@ -73,24 +74,43 @@ import Agda.Interaction.Options
 
 import Agda.Utils.Either
 import Agda.Utils.Function
-import Agda.Utils.Functor (($>), (<.>))
+import Agda.Utils.Functor (($>), (<.>), (<&>))
 import Agda.Utils.List
 import Agda.Utils.Size
 import Agda.Utils.Maybe
 import Agda.Utils.Monad -- (mapM', forM', ifM, or2M, and2M)
 import Agda.Utils.Null
+import Agda.Utils.PartialOrd
 import Agda.Utils.Permutation
-import Agda.Utils.Pretty (render)
+import Agda.Utils.Pretty (Pretty, render)
 import Agda.Utils.Singleton
 import Agda.Utils.VarSet (VarSet)
 import qualified Agda.Utils.VarSet as VarSet
+import Agda.Utils.Graph.AdjacencyMap.Unidirectional (Graph, Edge(..))
+import qualified Agda.Utils.Graph.AdjacencyMap.Unidirectional as Graph
 
 #include "undefined.h"
 import Agda.Utils.Impossible
 
--- | Call graph with call info for composed calls.
+-- | Unprocessed call collection.
 
-type Calls = CallGraph CallMatrix CallPath
+type Calls = Graph Int Int [ExtractedCall]
+
+useDotPatterns :: Calls -> Calls
+useDotPatterns = fmap $ map $ mapCallEnv $ \ e -> e { terUseDotPatterns = True }
+
+-- | Process calls into call graphs.
+
+-- callsToCallGraph :: (MonadTCM tcm, ElimsToCall a) => Calls -> tcm (CallGraph a CallPath)
+callsToCallGraph :: (MonadTCM tcm) => Calls -> tcm (CallGraph CallMatrix CallPath)
+callsToCallGraph cs = liftTCM $ billTo [Benchmark.Termination, Benchmark.Compare] $ do
+  CallGraph.fromList . concat <$> do
+    forM (Graph.edges cs) $ \ (Edge s t cs) -> do
+      forM cs $ \ c -> do
+        cm <- analyzeCall c
+        return $ mkCall s t cm $ callInfo c
+         -- Andreas, 2014-03-26 only 6% of termination time for library test
+         -- spent on call matrix generation
 
 -- | The result of termination checking a module.
 --   Must be a 'Monoid' and have 'Singleton'.
@@ -232,10 +252,10 @@ termMutual' = do
 
   -- collect all recursive calls in the block
   allNames <- terGetMutual
-  let collect = forM' allNames termDef
+  calls <- forM' allNames termDef
 
   -- first try to termination check ignoring the dot patterns
-  calls1 <- collect
+  calls1 <- callsToCallGraph calls
   reportCalls "no " calls1
 
   cutoff <- terGetCutOff
@@ -245,7 +265,7 @@ termMutual' = do
          r@Right{} -> return r
          Left{}    -> do
            -- Try again, but include the dot patterns this time.
-           calls2 <- terSetUseDotPatterns True $ collect
+           calls2 <- callsToCallGraph $ useDotPatterns calls
            reportCalls "" calls2
            billToTerGraph $ Term.terminates calls2
 
@@ -275,7 +295,9 @@ billToTerGraph = billPureTo [Benchmark.Termination, Benchmark.Graph]
 --
 --   Replays the call graph completion for debugging.
 
-reportCalls :: String -> Calls -> TerM ()
+-- reportCalls :: String -> Calls -> TerM ()
+reportCalls :: (Idempotent cm, Pretty cm, PartialOrd cm, Show cm, Pretty cinfo, Monoid cinfo, Show cinfo) =>
+  String -> CallGraph cm cinfo -> TerM ()
 reportCalls no calls = do
    cutoff <- terGetCutOff
    let ?cutoff = cutoff
@@ -349,7 +371,7 @@ termFunction name = do
    -- involve @name@,
    -- taking the target of @name@ into account for computing guardedness.
 
-   let collect = (`trampolineM` (Set.singleton index, mempty, mempty)) $ \ (todo, done, calls) -> do
+   calls <- (`trampolineM` (Set.singleton index, mempty, mempty)) $ \ (todo, done, calls) -> do
          if null todo then return $ Left calls else do
          -- Extract calls originating from indices in @todo@.
          new <- forM' todo $ \ i ->
@@ -358,12 +380,12 @@ termFunction name = do
          let done'  = done `mappend` todo
              calls' = new  `mappend` calls
          -- Compute the new todo list:
-             todo' = CallGraph.targetNodes new Set.\\ done'
+             todo' = Graph.targetNodes new Set.\\ done'
          -- Jump the trampoline.
          return $ Right (todo', done', calls')
 
    -- First try to termination check ignoring the dot patterns
-   calls1 <- terSetUseDotPatterns False $ collect
+   calls1 <- callsToCallGraph calls
    reportCalls "no " calls1
 
    r <- do
@@ -374,7 +396,7 @@ termFunction name = do
       Right () -> return $ Right ()
       Left{}    -> do
         -- Try again, but include the dot patterns this time.
-        calls2 <- terSetUseDotPatterns True $ collect
+        calls2 <- callsToCallGraph $ useDotPatterns calls
         reportCalls "" calls2
         billToTerGraph $ mapLeft callInfos $ Term.terminatesFilter (== index) calls2
 
@@ -507,7 +529,8 @@ matchingTarget conf t = maybe (return True) (match t) (currentTarget conf)
 --   The term is first normalized and stripped of all non-coinductive projections.
 
 termToDBP :: Term -> TerM DeBruijnPat
-termToDBP t = ifNotM terGetUseDotPatterns (return unusedVar) $ {- else -} do
+--termToDBP t = ifNotM terGetUseDotPatterns (return unusedVar) $ {- else -} do
+termToDBP t = do
     suc <- terGetSizeSuc
     let
       loop :: Term -> TCM DeBruijnPat
@@ -695,7 +718,7 @@ instance ExtractCalls a => ExtractCalls [a] where
   extract = mapM' extract
 
 instance (ExtractCalls a, ExtractCalls b) => ExtractCalls (a,b) where
-  extract (a, b) = CallGraph.union <$> extract a <*> extract b
+  extract (a, b) = mappend <$> extract a <*> extract b
 
 -- | Sorts can contain arbitrary terms of type @Level@,
 --   so look for recursive calls also in sorts.
@@ -867,13 +890,6 @@ function g es = ifM (terGetInlineWithFunctions `and2M` do isJust <$> isWithFunct
            "composing with guardedness " ++ show guarded ++
            " counting as " ++ show guarded'
 
-         -- Compute the call matrix.
-
-         -- Andreas, 2014-03-26 only 6% of termination time for library test
-         -- spent on call matrix generation
-         cm <- billTo [Benchmark.Termination, Benchmark.Compare] $
-           elimsToCall guarded' es
-
          -- Andreas, 2013-04-26 FORBIDDINGLY expensive!
          -- This PrettyTCM QName cost 50% of the termination time for std-lib!!
          -- gPretty <-liftTCM $ billTo [Benchmark.Termination, Benchmark.Level] $
@@ -896,14 +912,20 @@ function g es = ifM (terGetInlineWithFunctions `and2M` do isJust <$> isWithFunct
                       , callInfoRange  = getRange g
                       , callInfoCall   = doc
                       }]
+
+         terenv <- terAsk
+         call <- liftTCM $ do
+           buildClosure es <&> \ es -> ExtractedCall terenv guarded' es info
+
          liftTCM $ reportSDoc "term.kept.call" 5 $ vcat
            [ text "kept call from" <+> text (show f) <+> hsep (map prettyTCM pats)
            , nest 2 $ text "to" <+> text (show g) <+>
                        hsep (map (parens . prettyTCM) args)
-           , nest 2 $ text "call matrix (with guardedness): "
-           , nest 2 $ pretty cm
+           -- , nest 2 $ text "call matrix (with guardedness): "
+           -- , nest 2 $ pretty cm
            ]
-         return $ CallGraph.insert src tgt cm info calls
+         return $ Graph.insertWith (++) src tgt [call] calls
+         -- return $ CallGraph.insert src tgt cm info calls
 
 -- | Extract recursive calls from a term.
 
@@ -946,12 +968,12 @@ instance ExtractCalls Term where
       Var i es -> terUnguarded $ extract es
 
       -- Dependent function space.
-      Pi a (Abs x b) -> CallGraph.union <$> (terUnguarded $ extract a) <*> do
+      Pi a (Abs x b) -> mappend <$> (terUnguarded $ extract a) <*> do
          a <- maskSizeLt a  -- OR: just do not add a to the context!
          terPiGuarded $ addContext (x, a) $ terRaise $ extract b
 
       -- Non-dependent function space.
-      Pi a (NoAbs _ b) -> CallGraph.union
+      Pi a (NoAbs _ b) -> mappend
          <$> terUnguarded (extract a)
          <*> terPiGuarded (extract b)
 

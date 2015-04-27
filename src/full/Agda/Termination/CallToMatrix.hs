@@ -64,7 +64,7 @@ import Agda.Utils.Size
 import Agda.Utils.Maybe
 import Agda.Utils.Monad -- (mapM', forM', ifM, or2M, and2M)
 import Agda.Utils.Null
-import Agda.Utils.Permutation
+import Agda.Utils.PartialOrd
 import Agda.Utils.Pretty (render)
 import Agda.Utils.Singleton
 import Agda.Utils.VarSet (VarSet)
@@ -73,16 +73,32 @@ import qualified Agda.Utils.VarSet as VarSet
 #include "undefined.h"
 import Agda.Utils.Impossible
 
+-- | Unprocessed call extracted from code.
+
+data ExtractedCall = ExtractedCall
+  { callEnv     :: TerEnv
+  , callGuarded :: Guarded
+  , callElims   :: Closure Elims
+  , callInfo    :: CallPath
+  }
+
+mapCallEnv :: (TerEnv -> TerEnv) -> ExtractedCall -> ExtractedCall
+mapCallEnv f c = c { callEnv = f (callEnv c) }
+
 -- | Entry point.
 --   Turn guardedness and arguments (eliminations) of a call into a call matrix.
-class ElimsToCall a where
+class PartialOrd a => ElimsToCall a where
   elimsToCall :: Order -> [Elim] -> TerM a
+
+  analyzeCall :: ExtractedCall -> TCM a
+  analyzeCall (ExtractedCall env guarded es _) = enterClosure es $ \ es -> do
+    runTer env $ elimsToCall guarded es
 
 instance ElimsToCall CallMatrix where
   elimsToCall g es = do
     cutoff <- terGetCutOff
     let ?cutoff = cutoff
-    (nr, nc, m) <- compareArgs es
+    (nc, nr, m) <- compareArgs es
     return $ makeCM nr nc $ composeGuardedness g m
 
 {- | @compareArgs es@
