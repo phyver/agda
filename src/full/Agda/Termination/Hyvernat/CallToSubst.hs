@@ -50,6 +50,7 @@ import Agda.Termination.CutOff
 import Agda.Termination.Monad
 import Agda.Termination.Order as Order
 import Agda.Termination.CallDecoration
+import Agda.Termination.CallToMatrix (ElimsToCall(..))
 
 import Agda.Termination.Hyvernat.CallSubst
 
@@ -79,11 +80,6 @@ import qualified Agda.Utils.VarSet as VarSet
 
 #include "undefined.h"
 import Agda.Utils.Impossible
-
--- | Entry point.
---   Turn guardedness and arguments (eliminations) of a call into a call matrix.
-class ElimsToCall a where
-  elimsToCall :: Order -> [I.Elim] -> TerM a
 
 instance ElimsToCall (CallSubst QName) where
   elimsToCall g es = do

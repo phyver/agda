@@ -12,6 +12,7 @@ module Agda.Interaction.Options
     , Flag
     , Verbosity
     , IncludeDirs
+    , TerminationChecker(..)
     , checkOpts
     , parseStandardOptions
     , parsePragmaOptions

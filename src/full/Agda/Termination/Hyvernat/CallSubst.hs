@@ -26,7 +26,7 @@ import Agda.Termination.CutOff
 import Agda.Termination.CallDecoration
 
 import Agda.Utils.PartialOrd
-import Agda.Utils.Pretty (Pretty(..), prettyShow)
+import Agda.Utils.Pretty (Pretty(..), prettyShow, text)
 
 type Depth = Int  -- ^ cutoff for constructor/destructor depth
 type Bound = Int  -- ^ cutoff for weight
@@ -96,6 +96,12 @@ instance Pretty n => Show (Term n) where
 
 newtype CallSubst n = CallSubst { callSubst :: [(ArgNo , Term n)] }
     -- NOTE: could be also just [Term n]
+
+instance Pretty n => Pretty (CallSubst n) where
+  pretty _ = text "TODO: Pretty CallSubst"
+
+instance Pretty n => Show (CallSubst n) where
+  show = prettyShow
 
 print_call :: Pretty n => CallSubst n -> IO ()
 print_call (CallSubst []) = putStr ""

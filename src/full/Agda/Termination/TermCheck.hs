@@ -4,6 +4,7 @@
 {-# LANGUAGE ImplicitParams             #-}
 {-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE PatternGuards              #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE TupleSections              #-}
 
@@ -56,6 +57,10 @@ import qualified Agda.Termination.Termination  as Term
 import Agda.Termination.RecCheck
 import Agda.Termination.Inlining
 
+import Agda.Termination.Hyvernat.CallSubst (CallSubst)
+import Agda.Termination.Hyvernat.CallToSubst ()
+
+
 import Agda.TypeChecking.Monad
 import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce (reduce, normalise, instantiate, instantiateFull)
@@ -95,19 +100,6 @@ import Agda.Utils.Impossible
 -- | Unprocessed call collection.
 
 type Calls = Graph Int Int [ExtractedCall]
-
--- | Process calls into call graphs.
-
--- callsToCallGraph :: (MonadTCM tcm, ElimsToCall a) => Calls -> tcm (CallGraph a CallPath)
-callsToCallGraph :: (MonadTCM tcm) => Calls -> tcm (CallGraph CallMatrix CallPath)
-callsToCallGraph cs = liftTCM $ billTo [Benchmark.Termination, Benchmark.Compare] $ do
-  CallGraph.fromList . concat <$> do
-    forM (Graph.edges cs) $ \ (Edge s t cs) -> do
-      forM cs $ \ c -> do
-        cm <- analyzeCall c
-        return $ mkCall s t cm $ callInfo c
-         -- Andreas, 2014-03-26 only 6% of termination time for library test
-         -- spent on call matrix generation
 
 -- | The result of termination checking a module.
 --   Must be a 'Monoid' and have 'Singleton'.
@@ -371,19 +363,22 @@ termFunction name = do
 termCalls :: (Singleton TerminationError res, Monoid res) =>
   (Node -> Bool) -> ([QName] -> [QName]) -> Calls -> TerM res
 termCalls filtI filtN calls = do
-
-  -- analyse calls and construct call matrices
-   cms <- callsToCallGraph calls
-   reportCalls cms
-
-   r <- do
-     cutoff <- terGetCutOff
-     let ?cutoff = cutoff
-     billToTerGraph $ Term.terminatesFilter filtI cms
-
   -- @names@ is taken from the 'Abstract' syntax, so it contains only
   -- the names the user has declared.  This is for error reporting.
    names <- filtN <$> terGetUserNames
+   tc <- liftTCM $ optTerminationCheck <$> pragmaOptions
+   cutoff <- terGetCutOff
+   let ?cutoff = cutoff
+   (r :: Either CallPath ()) <- case tc of
+     Just SCT ->
+       billToTerGraph . Term.terminatesFilter filtI =<<
+         callsToCallGraph (undefined :: CallMatrix) calls
+     Just Hyvernat ->
+       -- Andreas, 2015-04-27: Don't try to eliminate the cut-and-paste
+       -- here, it is needed due to an ``existential'' type.
+       billToTerGraph . Term.terminatesFilter filtI =<<
+         callsToCallGraph (undefined :: CallSubst QName) calls
+     _ -> __IMPOSSIBLE__
    case r of
      Left calls -> return $ singleton $ terminationError names $ callInfos calls
      Right () -> do
@@ -391,6 +386,21 @@ termCalls filtI filtN calls = do
          show names ++ " does termination check"
        return mempty
 
+-- | Process calls into call graphs.
+--   The first argument is a dummy for type class resolution trickery.
+callsToCallGraph :: (ElimsToCall a, Idempotent a, PartialOrd a, Pretty a, Show a) =>
+  a -> Calls -> TerM (CallGraph a CallPath)
+-- callsToCallGraph :: (MonadTCM tcm) => Calls -> tcm (CallGraph CallMatrix CallPath)
+callsToCallGraph _ cs = billTo [Benchmark.Termination, Benchmark.Compare] $ do
+  cg <- CallGraph.fromList . concat <$> do
+    forM (Graph.edges cs) $ \ (Edge s t cs) -> do
+      forM cs $ \ c -> do
+        cm <- liftTCM $ analyzeCall c
+        return $ mkCall s t cm $ callInfo c
+         -- Andreas, 2014-03-26 only 6% of termination time for library test
+         -- spent on call matrix generation
+  reportCalls cg
+  return cg
 
 -- | To process the target type.
 typeEndsInDef :: MonadTCM tcm => Type -> tcm (Maybe QName)
