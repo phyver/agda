@@ -24,7 +24,8 @@ src_files=$(shell find . \( \( -name '*.hs' -o -name '*.lhs' \) ! -name '.*' \) 
 # Andreas: create tags for everything exept Auto and Compilers
 # ignore = $(patsubst ./%,%,$(shell find ./Agda/Auto ./Agda/Compiler -name '*.hs' -o -name '*.lhs'))
 ignore = $(shell find ./Agda/Auto ./Agda/Compiler ./Agda/Packaging -name '*.hs' -o -name '*.lhs')
-tag_files = $(filter-out $(ignore),$(src_files))
+ignore_more = ./Agda/Termination/Calls_tests.hs
+tag_files = $(filter-out $(ignore),$(filter-out $(ignore_more),$(src_files)))
 
 mytags :  $(tag_files) $(hTags) $(hTags_include)
 	$(hTags) $(hTags_flags) -e $(tag_files)
