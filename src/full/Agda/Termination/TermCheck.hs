@@ -246,28 +246,11 @@ termMutual i ds = if names == [] then return mempty else
 
 termMutual' :: TerM Result
 termMutual' = do
-
   -- collect all recursive calls in the block
   allNames <- terGetMutual
   calls <- forM' allNames termDef
-
-  -- analyse calls and construct call matrices
-  cms <- callsToCallGraph calls
-  reportCalls cms
-
-  cutoff <- terGetCutOff
-  let ?cutoff = cutoff
-  r <- billToTerGraph $ Term.terminates cms
-
-  -- @names@ is taken from the 'Abstract' syntax, so it contains only
-  -- the names the user has declared.  This is for error reporting.
-  names <- terGetUserNames
-  case r of
-    Left calls -> return $ singleton $ terminationError names $ callInfos calls
-    Right{} -> do
-      liftTCM $ reportSLn "term.warn.yes" 2 $
-        show (names) ++ " does termination check"
-      return mempty
+  -- call the termination checker
+  termCalls (const True) id calls
 
 -- | Smart constructor for 'TerminationError'.
 --   Removes 'termErrFunctions' that are not mentioned in 'termErrCalls'.
@@ -374,26 +357,40 @@ termFunction name = do
          -- Jump the trampoline.
          return $ Right (todo', done', calls')
 
+   -- Call the termination checker.
+   termCalls (== index) ([name] `intersect`) calls
+
+  where
+    reportTarget r = liftTCM $
+      reportSLn "term.target" 20 $ "  target type " ++
+        caseMaybe r "not recognized" (\ q ->
+          "ends in " ++ show q)
+
+-- | Do the actual termination checking on the extracted calls.
+
+termCalls :: (Singleton TerminationError res, Monoid res) =>
+  (Node -> Bool) -> ([QName] -> [QName]) -> Calls -> TerM res
+termCalls filtI filtN calls = do
+
+  -- analyse calls and construct call matrices
    cms <- callsToCallGraph calls
    reportCalls cms
 
    r <- do
      cutoff <- terGetCutOff
      let ?cutoff = cutoff
-     billToTerGraph $ mapLeft callInfos $ Term.terminatesFilter (== index) cms
+     billToTerGraph $ Term.terminatesFilter filtI cms
 
-   names <- terGetUserNames
+  -- @names@ is taken from the 'Abstract' syntax, so it contains only
+  -- the names the user has declared.  This is for error reporting.
+   names <- filtN <$> terGetUserNames
    case r of
-     Left calls -> return $ singleton $ terminationError ([name] `intersect` names) calls
+     Left calls -> return $ singleton $ terminationError names $ callInfos calls
      Right () -> do
        liftTCM $ reportSLn "term.warn.yes" 2 $
-         show name ++ " does termination check"
+         show names ++ " does termination check"
        return mempty
-  where
-    reportTarget r = liftTCM $
-      reportSLn "term.target" 20 $ "  target type " ++
-        caseMaybe r "not recognized" (\ q ->
-          "ends in " ++ show q)
+
 
 -- | To process the target type.
 typeEndsInDef :: MonadTCM tcm => Type -> tcm (Maybe QName)

@@ -61,7 +61,7 @@ import Data.List (partition)
 -- lexicographic order (and easier to implement, but harder to justify).
 
 terminates :: (PartialOrd cm, Idempotent cm, Monoid cinfo, ?cutoff :: CutOff) => CallGraph cm cinfo -> Either cinfo ()
-terminates cs = checkIdems $ endos $ toList $ complete cs
+terminates = terminatesFilter (const True)
 
 terminatesFilter :: (PartialOrd cm, Idempotent cm, Monoid cinfo, ?cutoff :: CutOff) =>
   (Node -> Bool) -> CallGraph cm cinfo -> Either cinfo ()
