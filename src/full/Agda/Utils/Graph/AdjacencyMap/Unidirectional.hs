@@ -54,7 +54,7 @@ module Agda.Utils.Graph.AdjacencyMap.Unidirectional
   )
   where
 
-import Prelude hiding (lookup, unzip)
+import Prelude hiding (lookup, unzip, null)
 
 import Control.Applicative ((<$>), (<*>))
 
@@ -65,12 +65,15 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Maybe as Maybe
 import Data.Maybe (maybeToList)
+import Data.Monoid
 import qualified Data.Set as Set
 import Data.Set (Set)
 
 import Agda.Utils.Function (iterateUntil)
 import Agda.Utils.Functor (for)
 import Agda.Utils.List (headMaybe)
+import Agda.Utils.Null (Null(null))
+import qualified Agda.Utils.Null as Null
 import Agda.Utils.QuickCheck as QuickCheck
 import Agda.Utils.SemiRing
 import Agda.Utils.TestHelpers
@@ -235,6 +238,10 @@ toList (Graph g) = [ Edge s t a | (s,m) <- Map.assocs g, (t,a) <- Map.assocs m ]
 empty :: Graph s t e
 empty = Graph Map.empty
 
+instance Null (Graph s t e) where
+  null = null . graph
+  empty = Graph Map.empty
+
 -- | A graph with two nodes and a single connecting edge.
 
 singleton :: (Ord s, Ord t) => s -> t -> e -> Graph s t e
@@ -269,6 +276,10 @@ union = unionWith $ \ left right -> left
 unionWith :: (Ord s, Ord t) =>
              (e -> e -> e) -> Graph s t e -> Graph s t e -> Graph s t e
 unionWith f (Graph g) (Graph g') = Graph $ Map.unionWith (Map.unionWith f) g g'
+
+instance (Ord s, Ord t, Monoid e) => Monoid (Graph s t e) where
+  mempty  = empty
+  mappend = unionWith mappend
 
 unions ::(Ord s, Ord t) => [Graph s t e] -> Graph s t e
 unions = unionsWith $ \ left right -> left
@@ -560,4 +571,3 @@ tests = runTests "Agda.Utils.Graph.AdjacencyMap.Unidirectional"
   [ quickCheck' (prop_nodes_fromNodes :: [Int] -> Bool)
   , quickCheck' (prop_transitiveClosure :: G -> Property)
   ]
-
