@@ -26,7 +26,10 @@ import Agda.Termination.CutOff
 import Agda.Termination.CallDecoration
 
 import Agda.Utils.PartialOrd
-import Agda.Utils.Pretty (Pretty(..), prettyShow, text)
+import Agda.Utils.Pretty (Pretty(..), prettyShow, text, align)
+
+
+
 
 type Depth = Int  -- ^ cutoff for constructor/destructor depth
 type Bound = Int  -- ^ cutoff for weight
@@ -43,10 +46,10 @@ instance Ord Z_infty where
   compare _ Infty = LT
   compare (Number n) (Number m) = compare n m
 
--- TODO: Define Pretty instance instead  (Agda.Utils.Pretty).
-instance Show Z_infty where
-  show Infty = "∞"
-  show (Number n) = show n
+instance Pretty Z_infty where
+  pretty Infty = text "∞"
+  pretty (Number n) = pretty n
+
 
 instance Monoid Z_infty where
   mempty = Number 0
@@ -61,9 +64,9 @@ data Destructor n
   | Case n
   deriving Eq
 
-instance Pretty n => Show (Destructor n) where
-  show (Proj l) = "π_" ++ l
-  show (Case c) = prettyShow c ++ "-"
+instance Pretty n => Pretty (Destructor n) where
+  pretty (Proj l) = text $ "π_" ++ l
+  pretty (Case c) = text $ (prettyShow c) ++ "-"
 
 -- | The arguments of the caller are de Bruijn indices.
 type ArgNo = Int
@@ -86,11 +89,11 @@ data Term n
   | Exact [Destructor n]  ArgNo   -- ^ "exact" branch of destructors, with argument
   | Approx [Branch n]             -- ^ sum of approximations
 
-instance Pretty n => Show (Term n) where
-  show (Const c t) = prettyShow c ++ " " ++ show t
-  show (Record l) = "{" ++ (intercalate " ; " (map (\(l,t) -> show l ++ "=" ++ show t) l)) ++ "}"
-  show (Exact ds i) = (intercalate "" (map show ds)) ++ "x_" ++ (show i)
-  show (Approx l) = intercalate " + " (map (\(Branch w ds i) -> "<" ++ (show w) ++ ">" ++ (intercalate "" (map show ds)) ++ "x_" ++ (show i)) l)
+instance Pretty n => Pretty (Term n) where
+  pretty (Const c t)  = text $ prettyShow c ++ " " ++ prettyShow t
+  pretty (Record l)   = text $ "{" ++ (intercalate " ; " (map (\(l,t) -> prettyShow l ++ "=" ++ prettyShow t) l)) ++ "}"
+  pretty (Exact ds i) = text $ (intercalate " " (map prettyShow ds)) ++ " x_" ++ (prettyShow i)
+  pretty (Approx l)   = text $ intercalate " + " (map (\(Branch w ds i) -> "<" ++ (prettyShow w) ++ ">" ++ (intercalate " " (map prettyShow ds)) ++ " x_" ++ (prettyShow i)) l)
 
 -- | A call is a substitution of the arguments by terms.
 
@@ -98,14 +101,11 @@ newtype CallSubst n = CallSubst { callSubst :: [(ArgNo , Term n)] }
     -- NOTE: could be also just [Term n]
 
 instance Pretty n => Pretty (CallSubst n) where
-  pretty _ = text "TODO: Pretty CallSubst"
+  pretty (CallSubst []) = text "...empty..."
+  pretty (CallSubst c) = align 10 $ map (\(a,t) -> ("x_" ++ (prettyShow a) ++  " = ", pretty t)) c
 
 instance Pretty n => Show (CallSubst n) where
   show = prettyShow
-
-print_call :: Pretty n => CallSubst n -> IO ()
-print_call (CallSubst []) = putStr ""
-print_call (CallSubst ((i,t):c)) = putStr "x_" >> (putStr $ show i) >> putStr " := " >> print t >> putStrLn "" >> print_call (CallSubst c)
 
 -- | Collapse the weight of an approximation.
 

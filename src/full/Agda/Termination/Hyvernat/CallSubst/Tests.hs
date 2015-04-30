@@ -2,6 +2,7 @@
 
 module Agda.Termination.Hyvernat.CallSubst.Tests where
 
+import Agda.Utils.Pretty (Pretty(..), prettyShow, text, align)
 import Agda.Termination.Hyvernat.CallSubst
 
 -- ack Z     m     = S m
@@ -33,11 +34,15 @@ g = CallSubst [ (0 , Approx
   , Branch (Number 10) [] 1
   ] ) ]
 
-main :: IO ()
-main = do
-  print_call ack1
-  print_call ack2
-  print_call f1
-  print_call f2
-  print_call f3
-  print_call $ collapse_call 0 100 g
+-- print_call :: Pretty n => CallSubst n -> IO ()
+-- print_call (CallSubst []) = putStr ""
+-- print_call (CallSubst ((i,t):c)) = putStr "x_" >> (putStr $ show i) >> putStr " := " >> print t >> putStrLn "" >> print_call (CallSubst c)
+
+-- main :: IO ()
+-- main = do
+--   print_call ack1
+--   print_call ack2
+--   print_call f1
+--   print_call f2
+--   print_call f3
+--   print_call $ collapse_call 0 100 g
