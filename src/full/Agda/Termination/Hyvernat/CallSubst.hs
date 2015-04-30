@@ -196,6 +196,9 @@ compatible (Record l1) (Record l2)
   | let (labels1, terms1) = unzip l1
   , let (labels2, terms2) = unzip l2 =
   labels1 == labels2 && and (zipWith compatible terms1 terms2)
+compatible (Approx bs1) (Approx bs2) =
+  any (\b1 ->
+  any (\b2 -> (approximates_destructors b1 b2) || (approximates_destructors b2 b1)) bs2) bs1
 compatible (Approx bs) u = compatible (Approx $ reduce_approx (Number 0) u) (Approx bs)
 compatible u (Approx bs) = compatible (Approx $ reduce_approx (Number 0) u) (Approx bs)
 compatible _ _ = False
