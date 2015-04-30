@@ -108,17 +108,19 @@ invertPatterns :: MaskedDeBruijnPats -> [ (DeBruijnIndex, Term QName) ]
 invertPatterns ps = concat $ map aux (zip ps [1..])
   where aux (Masked masked p, argNo) = if masked
                                        then []
-                                       else map (\(i,ds) -> (i, Exact ds argNo)) (invertPattern p)
+                                       else map (\(i,ds) -> (i, Exact (reverse ds) argNo)) (invertPattern p)
 
 type DeBruijnIndex = Int
 
+-- | Beware, this function return the list of destructors in reverse order!
+--   The calling function (invertPatterns) should thus reverse its result...
 invertPattern :: DeBruijnPat -> [ (DeBruijnIndex, [Destructor QName]) ]
 invertPattern p =
   case p of
     VarDBP i -> return (i, [])
     ConDBP c ps -> concat $ forM (zip ps $ map show [1..]) $ \ (pat, pr) -> do
       (i, ds) <- invertPattern pat
-      return (i, Proj pr : Case c : ds)
+      return (i, Case c : Proj pr : ds)
     LitDBP{}  -> mzero
     TermDBP{} -> mzero
     ProjDBP{} -> mzero
