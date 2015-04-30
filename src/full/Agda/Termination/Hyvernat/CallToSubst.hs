@@ -105,11 +105,10 @@ Patterns become
 -}
 
 invertPatterns :: MaskedDeBruijnPats -> [ (DeBruijnIndex, Term QName) ]
-invertPatterns ps = concat $ do
-  forM (zip ps [1..]) $ \ (Masked masked p, argNo) -> do
-    if masked then mzero else do
-    (i, ds) <- invertPattern p
-    return (i, Exact ds argNo)
+invertPatterns ps = concat $ map aux (zip ps [1..])
+  where aux (Masked masked p, argNo) = if masked
+                                       then []
+                                       else map (\(i,ds) -> (i, Exact ds argNo)) (invertPattern p)
 
 type DeBruijnIndex = Int
 
