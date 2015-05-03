@@ -36,7 +36,8 @@ type Bound = Int  -- ^ cutoff for weight
 
 -- | Type for depth differences.
 data Z_infty
-  = Number Int
+  = Least
+  | Number Int
   | Infty
   deriving Eq
 
@@ -44,9 +45,13 @@ instance Ord Z_infty where
   compare Infty Infty = EQ
   compare Infty _ = GT
   compare _ Infty = LT
+  compare Least Least = EQ
+  compare Least _ = LT
+  compare _ Least = GT
   compare (Number n) (Number m) = compare n m
 
 instance Pretty Z_infty where
+  pretty Least = text "⊥"
   pretty Infty = text "∞"
   pretty (Number n) = pretty n
 
@@ -55,6 +60,8 @@ instance Monoid Z_infty where
   mempty = Number 0
   mappend Infty _ = Infty
   mappend _ Infty = Infty
+  mappend Least _ = Least
+  mappend _ Least = Least
   mappend (Number n) (Number m) = Number (n+m)
 
 -- | The two kinds of destructors:
@@ -111,6 +118,7 @@ instance Pretty n => Show (CallSubst n) where
 
 collapse_infty :: Int -> Z_infty -> Z_infty
 collapse_infty b Infty = Infty
+collapse_infty b Least = Least
 collapse_infty b (Number n)
   | n < -b    = Number (-b)
   | n > b-1   = Infty
