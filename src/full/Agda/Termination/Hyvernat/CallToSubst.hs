@@ -118,9 +118,7 @@ invertPattern :: DeBruijnPat -> [ (DeBruijnIndex, [Destructor QName]) ]
 invertPattern p =
   case p of
     VarDBP i -> return (i, [])
-    ConDBP c ps -> concat $ forM (zip ps $ map show [1..]) $ \ (pat, pr) -> do
-      (i, ds) <- invertPattern pat
-      return (i, Case c : Proj pr : ds)
+    ConDBP c ps -> concat $ map (\(pat, pr) -> map (\(i,ds) -> (i, Case c : Proj pr : ds)) $ invertPattern pat) $ zip ps $ map show [1..]
     LitDBP{}  -> mzero
     TermDBP{} -> mzero
     ProjDBP{} -> mzero
