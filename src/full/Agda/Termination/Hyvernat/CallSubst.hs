@@ -100,6 +100,7 @@ instance Pretty n => Pretty (Term n) where
   pretty (Const c t)  = text $ prettyShow c ++ " " ++ prettyShow t
   pretty (Record l)   = text $ "{" ++ (intercalate " ; " (map (\(l,t) -> prettyShow l ++ "=" ++ prettyShow t) l)) ++ "}"
   pretty (Exact ds i) = text $ (intercalate " " (map prettyShow ds)) ++ " x_" ++ (prettyShow i)
+  pretty (Approx [])  = text "empty sum"
   pretty (Approx l)   = text $ intercalate " + " (map (\(Branch w ds i) -> "<" ++ (prettyShow w) ++ ">" ++ (intercalate " " (map prettyShow ds)) ++ " x_" ++ (prettyShow i)) l)
 
 -- | A call is a substitution of the arguments by terms.
