@@ -344,7 +344,7 @@ canonicalize c = instCall s $ c{ callVars = length xs }
 
 -- * Truncation
 
-type Depth   = Int   -- ^ Maximal depth of patterns
+type Depth   = Int -- ^ Maximal depth of patterns
 type Breadth = Int -- ^ Maximal number of copatterns
 
 truncateAt :: Applicative m => Depth -> (Pat n a -> m (Pat n a)) -> Pat n a -> m (Pat n a)

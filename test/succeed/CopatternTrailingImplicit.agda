@@ -1,4 +1,5 @@
 {-# OPTIONS --copatterns --sized-types #-}
+-- {-# OPTIONS -v term:20 #-}
 -- {-# OPTIONS -v tc.size.solve:30 #-}
 -- {-# OPTIONS -v term:40 -v term.proj:60 --show-implicit #-}
 -- Andreas, 2013-10-01 Make sure trailing implicit insertion
@@ -45,4 +46,3 @@ tail nats' = map suc nats'
 -- trailing hidden arguments on the LHS, but this has other
 -- drawbacks (Q: even with varying arity?): cannot have
 -- hidden lambdas on rhs (used to name trailing hiddens in with-clauses).
-

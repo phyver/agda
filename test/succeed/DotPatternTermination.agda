@@ -2,6 +2,7 @@
 -- {-# OPTIONS -v tc.cover.strategy:20 -v tc.cover.precomputed:10 #-}
 -- {-# OPTIONS -v term.check.clause:25 #-}
 -- {-# OPTIONS -v term.matrices:40 #-}
+-- {-# OPTIONS -v term:20 #-}
 
 module DotPatternTermination where
 
