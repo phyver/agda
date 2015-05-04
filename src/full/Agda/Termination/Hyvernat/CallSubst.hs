@@ -321,14 +321,16 @@ collapse_call d b (CallSubst tau) = CallSubst $ map (second (collapse d b)) tau
 
 -- | CallSubst composition (partial).
 
-compose :: Eq n => Depth -> Bound -> CallSubst n -> CallSubst n -> Maybe (CallSubst n)
-compose d b tau (CallSubst sigma) = collapse_call d b . CallSubst <$> do
-  forM sigma $ \ (i,t) -> (i,) <$> substitute t tau
+compose :: (Pretty n, Eq n) => Depth -> Bound -> CallSubst n -> CallSubst n -> Maybe (CallSubst n)
+compose d b tau (CallSubst sigma) = trace ((show d) ++ "/" ++ (show b) ++ "\n" ++ "tau: " ++ (prettyShow tau) ++ "\nsigma: " ++ (prettyShow (CallSubst sigma)) ++ "\n" )
+                                          (collapse_call d b . CallSubst <$> do
+                                            forM sigma $ \ (i,t) -> (i,) <$> substitute t tau)
 
 instance Eq n => CallComb (CallSubst n) where
-  callComb tau sigma = compose (d * 2) d tau sigma
-    where CutOff d = ?cutoff
-  -- *2 because of the layer of tuples
+  callComb tau sigma = compose d b tau sigma
+    where CutOff c = ?cutoff
+          b = c + 1
+          d = 2*b -- *2 because of the layer of tuples FIXME
 
 is_decreasing :: Eq n => CallSubst n -> Bool
 is_decreasing tau = any decr $ callSubst tau
