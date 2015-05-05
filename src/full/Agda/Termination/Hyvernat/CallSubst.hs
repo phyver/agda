@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE PatternGuards  #-}
 {-# LANGUAGE TupleSections  #-}
@@ -27,6 +28,8 @@ import Agda.Termination.CallDecoration
 
 import Agda.Utils.PartialOrd
 import Agda.Utils.Pretty (Pretty(..), prettyShow, text, align)
+#include "undefined.h"
+import Agda.Utils.Impossible
 
 
 
@@ -98,6 +101,7 @@ data Term n
 
 instance Pretty n => Pretty (Term n) where
   pretty (Const c t)  = text $ prettyShow c ++ " " ++ prettyShow t
+  pretty (Record [])   = text "empty record: SHOULDN'T HAPPEN"
   pretty (Record l)   = text $ "{" ++ (intercalate " ; " (map (\(l,t) -> prettyShow l ++ "=" ++ prettyShow t) l)) ++ "}"
   pretty (Exact ds i) = text $ (intercalate " " (map prettyShow ds)) ++ " x_" ++ (prettyShow i)
   pretty (Approx [])  = text "empty sum"
@@ -167,6 +171,7 @@ nubMax (b:bs) = aux b (nubMax bs)
 -- | Computes the normal form of @<w>v@.
 reduceApprox :: Eq n => ZInfty -> Term n -> [Branch n]
 reduceApprox w (Const _ v) = reduceApprox (w <> (Number 1)) v
+reduceApprox w (Record []) = __IMPOSSIBLE__
 reduceApprox w (Record l) = nubMax $ concat $ map (reduceApprox (w <> (Number 1))) $ map snd l
 reduceApprox w (Approx bs) = nubMax $ map (\(Branch w' ds i) -> (Branch (w <> w') ds i)) bs
 reduceApprox w (Exact ds i) = [ Branch w ds i ]
@@ -179,6 +184,8 @@ approximates (Exact ds1 i1) (Exact ds2 i2)
 approximates (Const c1 u1) (Const c2 u2)
   | c1 == c2  = approximates u1 u2
   | otherwise = False
+approximates (Record []) _ = __IMPOSSIBLE__
+approximates _ (Record []) = __IMPOSSIBLE__
 approximates (Record l1) (Record l2)
   | let (labels1, terms1) = unzip l1
   , let (labels2, terms2) = unzip l2 =
@@ -201,6 +208,8 @@ compatible (Exact ds1 i1) (Exact ds2 i2) = ds1 == ds2 && i1 == i2
 compatible (Const c1 u1) (Const c2 u2)
   | c1 == c2  = compatible u1 u2
   | otherwise = False
+compatible (Record []) _ = __IMPOSSIBLE__
+compatible _ (Record []) = __IMPOSSIBLE__
 compatible (Record l1) (Record l2)
   | let (labels1, terms1) = unzip l1
   , let (labels2, terms2) = unzip l2 =
@@ -259,14 +268,14 @@ getSubtree (Case c1 : ds) (Const c2 v)
 getSubtree (Proj l : ds) (Record r) =
   case lookup l r of
     Just v  -> getSubtree ds v
-    Nothing -> error "TYPING PROBLEM"
-getSubtree _ _ = error "TYPING PROBLEM"
-  -- TODO: use __IMPOSSIBLE__
+    Nothing -> __IMPOSSIBLE__   -- typing problem
+getSubtree _ _ = __IMPOSSIBLE__ -- typing proble
 
 -- | Given a term and a substitution (call), apply the substitution.
 
 substitute :: Eq n => Term n -> CallSubst n -> Maybe (Term n)
 substitute (Const c u) tau = Const c <$> substitute u tau
+substitute (Record []) _ = __IMPOSSIBLE__
 substitute (Record r) tau | let (labels, terms) = unzip r =
   Record . zip labels <$> mapM (`substitute` tau) terms
 substitute (Exact ds i) tau = getSubtree (reverse ds) (getTerm tau i)
@@ -278,6 +287,7 @@ substitute (Approx bs) tau = Approx . nubMax . concat <$> do
 
 collapse1 :: Eq n => Bound -> Term n -> Term n
 collapse1 b (Const c u) = Const c (collapse1 b u)
+collapse1 _ (Record []) = __IMPOSSIBLE__
 collapse1 b (Record r) | let (labels, args) = unzip r =
   Record (zip labels (map (collapse1 b) args))
 collapse1 b (Exact ds i) = Exact ds i
@@ -287,6 +297,7 @@ collapse1 b (Approx bs) = Approx $ nubMax $ map (mapWeight (collapseZInfty b)) b
 
 collapse2 :: Eq n => Depth -> Term n -> Term n
 collapse2 d (Const c u) = Const c (collapse2 d u)
+collapse2 _ (Record []) = __IMPOSSIBLE__
 collapse2 d (Record r) | let (labels, args) = unzip r =
   Record (zip labels (map (collapse2 d) args))
 collapse2 d (Exact ds i) =
@@ -303,6 +314,7 @@ collapse2 d (Approx bs) = Approx $ nub_max $
 -- | Collapsing constructors.
 
 collapse3 :: Eq n => Depth -> Term n -> Term n
+collapse3 _ (Record []) = __IMPOSSIBLE__
 collapse3 d (Record r) | let (labels, args) = unzip r =
   Record (zip labels (map (collapse3 d) args))  -- do not decrease depth bound on records
 collapse3 0 (Exact ds i) = Exact ds i
@@ -333,13 +345,14 @@ instance Eq n => CallComb (CallSubst n) where
           d = 2*b -- *2 because of the layer of tuples FIXME
 
 isDecreasing :: Eq n => CallSubst n -> Bool
-isDecreasing tau = any decr $ callSubst tau
+isDecreasing (CallSubst tau) = any decr tau
   where
-  isOK ds t i = approximates (Approx [Branch (Number (-1)) ds i]) t
   decr (i,t) = aux [] t
-    where aux ds (Const c u) = isOK ds t i || aux ((Case c):ds) u
-          aux ds (Record r) = isOK ds t i || any (\(n,u) -> aux ((Proj n):ds) u) r
-          aux ds t = isOK ds t i
+    where aux ds (Const c u) = isOK ds t || aux ((Case c):ds) u
+          aux _ (Record []) = __IMPOSSIBLE__
+          aux ds (Record r) = isOK ds t || any (\(n,u) -> aux ((Proj n):ds) u) r
+          aux ds t = isOK ds t
+          isOK ds t = approximates (Approx [Branch (Number (-1)) ds i]) t
 
 
 instance Eq n => Idempotent (CallSubst n) where

@@ -87,8 +87,8 @@ instance ElimsToCall (CallSubst QName) where
     let ?cutoff = cutoff
     pats <- terGetPatterns
     let tau = invertPatterns pats
-    sigma <- liftTCM $ callElims es $ length tau
-    return $ CallSubst tau >*< sigma
+    sigma <- liftTCM $ callElims es
+    return $ addInfty $ CallSubst tau >*< sigma
 
 {- | Process patterns.
 
@@ -103,6 +103,23 @@ Patterns become
   z := π₂ d- f3
 @
 -}
+
+-- | @addInfty@ replaces all empty approximations Approx [] by the "infinity
+--   element". (<∞> x1 + <∞> x2 + ... + <∞> xn)
+--   Those empty approximation (should) only arise from arguments with unknow
+--   size:
+--     - constants: which we cannot compare to any argument
+--     - function calls
+addInfty :: CallSubst QName -> CallSubst QName
+addInfty (CallSubst tau) = CallSubst $ map (\(x,t) -> (x, addInftyTerm (length tau) t)) tau
+
+addInftyTerm :: Eq n => Int -> Term n -> Term n
+addInftyTerm nbArgs (Const n t) = Const n $ addInftyTerm nbArgs t
+addInftyTerm nbArgs (Record []) = Approx [Branch Infty [] n | n <- [1..nbArgs]]
+addInftyTerm nbArgs (Record r) = Record $ map (\(l,t) -> (l,addInftyTerm nbArgs t)) r
+addInftyTerm nbArgs (Approx []) = Approx [Branch Infty [] n | n <- [1..nbArgs]]
+addInftyTerm _ t = t
+
 
 invertPatterns :: MaskedDeBruijnPats -> [ (DeBruijnIndex, Term QName) ]
 invertPatterns ps = concat $ map aux (zip ps [1..])
@@ -136,29 +153,30 @@ Arguments become
   g3 := ∞
 @
  -}
-callElims :: [I.Elim] -> Int -> TCM (CallSubst QName)
-callElims es nbPatternVar = CallSubst <$> do
-  forM (zip es [1..]) $ \ (e, argNo) -> (argNo,) <$> callElim e nbPatternVar
+callElims :: [I.Elim] -> TCM (CallSubst QName)
+callElims es = CallSubst <$> do
+  forM (zip es [1..]) $ \ (e, argNo) -> (argNo,) <$> callElim e
 
-callElim :: I.Elim -> Int -> TCM (Term QName)
-callElim e nbPatternVar =
+callElim :: I.Elim -> TCM (Term QName)
+callElim e =
   case e of
     I.Proj{}          -> return $ infty
-    I.Apply (Arg _ a) -> callArg a nbPatternVar
+    I.Apply (Arg _ a) -> callArg a
   where
-    infty = Approx [Branch Infty [] n | n <- [0..nbPatternVar-1]]
+    infty = Approx []
 
-callArg :: I.Term -> Int -> TCM (Term QName)
-callArg v nbPatternVar =
+callArg :: I.Term -> TCM (Term QName)
+callArg v =
   case I.ignoreSharing v of
     I.Var i _    -> return $ Exact [] i
+    I.Con c []   -> return $ Const (I.conName c) infty  -- constant: we cannot compare it with anything
     I.Con c vs   -> Const (I.conName c) . Record <$>
-      zipWithM (\ v pr -> (show pr,) <$> callArg (unArg v) nbPatternVar) vs [1..]
+      zipWithM (\ v pr -> (show pr,) <$> callArg (unArg v)) vs [1..]
     I.Lit{} ->  do
       v <- liftTCM $ constructorForm v
       case I.ignoreSharing v of
         I.Lit{} -> return infty
-        v       -> callArg v nbPatternVar
+        v       -> callArg v
     I.Def f es   -> return infty
     I.Lam{}      -> return infty -- not a first-order value
     I.Pi{}       -> return infty
@@ -169,5 +187,4 @@ callArg v nbPatternVar =
     I.Shared{}   -> __IMPOSSIBLE__
     I.ExtLam{}   -> __IMPOSSIBLE__
   where
-    infty = Approx [Branch Infty [] n | n <- [0..nbPatternVar-1]]
-    least = Approx [Branch Least [] n | n <- [0..nbPatternVar-1]]
+    infty = Approx []
