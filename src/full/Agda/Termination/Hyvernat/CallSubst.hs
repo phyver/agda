@@ -35,13 +35,13 @@ type Depth = Int  -- ^ cutoff for constructor/destructor depth
 type Bound = Int  -- ^ cutoff for weight
 
 -- | Type for depth differences.
-data Z_infty
-  = Least
+data ZInfty
+  = Least               -- FIXME: probably doesn't work...  meta2 (S n) m = meta2 m ? //  meta2 m (S n) = meta2 n ? is non terminating...
   | Number Int
   | Infty
   deriving Eq
 
-instance Ord Z_infty where
+instance Ord ZInfty where
   compare Infty Infty = EQ
   compare Infty _ = GT
   compare _ Infty = LT
@@ -50,13 +50,13 @@ instance Ord Z_infty where
   compare _ Least = GT
   compare (Number n) (Number m) = compare n m
 
-instance Pretty Z_infty where
+instance Pretty ZInfty where
   pretty Least = text "⊥"
   pretty Infty = text "∞"
   pretty (Number n) = pretty n
 
 
-instance Monoid Z_infty where
+instance Monoid ZInfty where
   mempty = Number 0
   mappend Infty _ = Infty
   mappend _ Infty = Infty
@@ -77,7 +77,7 @@ instance Pretty n => Pretty (Destructor n) where
 
 -- | The arguments of the caller are de Bruijn indices.
 type ArgNo = Int
-type Weight = Z_infty
+type Weight = ZInfty
 
 data Branch n = Branch
   { brWeight :: Weight
@@ -117,7 +117,7 @@ instance Pretty n => Show (CallSubst n) where
 
 -- | Collapse the weight of an approximation.
 
-collapse_infty :: Int -> Z_infty -> Z_infty
+collapse_infty :: Int -> ZInfty -> ZInfty
 collapse_infty b Infty = Infty
 collapse_infty b Least = Least
 collapse_infty b (Number n)
@@ -165,7 +165,7 @@ nub_max (b:bs) = aux b (nub_max bs)
   -- TODO: reuse Agda.Utils.Favorites
 
 -- | Computes the normal form of @<w>v@.
-reduce_approx :: Eq n => Z_infty -> Term n -> [Branch n]
+reduce_approx :: Eq n => ZInfty -> Term n -> [Branch n]
 reduce_approx w (Const _ v) = reduce_approx (w <> (Number 1)) v
 reduce_approx w (Record l) = nub_max $ concat $ map (reduce_approx (w <> (Number 1))) $ map snd l
 reduce_approx w (Approx bs) = nub_max $ map (\(Branch w' ds i) -> (Branch (w <> w') ds i)) bs
