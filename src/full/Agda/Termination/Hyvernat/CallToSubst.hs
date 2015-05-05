@@ -86,9 +86,9 @@ instance ElimsToCall (CallSubst QName) where
     cutoff <- terGetCutOff
     let ?cutoff = cutoff
     pats <- terGetPatterns
-    let tau = CallSubst $ invertPatterns pats
-    sigma <- liftTCM $ callElims es
-    return $ tau >*< sigma
+    let tau = invertPatterns pats
+    sigma <- liftTCM $ callElims es $ length tau
+    return $ CallSubst tau >*< sigma
 
 {- | Process patterns.
 
@@ -136,29 +136,29 @@ Arguments become
   g3 := ∞
 @
  -}
-callElims :: [I.Elim] -> TCM (CallSubst QName)
-callElims es = CallSubst <$> do
-  forM (zip es [1..]) $ \ (e, argNo) -> (argNo,) <$> callElim e
+callElims :: [I.Elim] -> Int -> TCM (CallSubst QName)
+callElims es nbPatternVar = CallSubst <$> do
+  forM (zip es [1..]) $ \ (e, argNo) -> (argNo,) <$> callElim e nbPatternVar
 
-callElim :: I.Elim -> TCM (Term QName)
-callElim e =
+callElim :: I.Elim -> Int -> TCM (Term QName)
+callElim e nbPatternVar =
   case e of
     I.Proj{}          -> return $ infty
-    I.Apply (Arg _ a) -> callArg a
+    I.Apply (Arg _ a) -> callArg a nbPatternVar
   where
-    infty = Approx []
+    infty = Approx [Branch Infty [] n | n <- [0..nbPatternVar-1]]
 
-callArg :: I.Term -> TCM (Term QName)
-callArg v =
+callArg :: I.Term -> Int -> TCM (Term QName)
+callArg v nbPatternVar =
   case I.ignoreSharing v of
     I.Var i _    -> return $ Exact [] i
     I.Con c vs   -> Const (I.conName c) . Record <$>
-      zipWithM (\ v pr -> (show pr,) <$> callArg (unArg v)) vs [1..]
+      zipWithM (\ v pr -> (show pr,) <$> callArg (unArg v) nbPatternVar) vs [1..]
     I.Lit{} ->  do
       v <- liftTCM $ constructorForm v
       case I.ignoreSharing v of
         I.Lit{} -> return infty
-        v       -> callArg v
+        v       -> callArg v nbPatternVar
     I.Def f es   -> return infty
     I.Lam{}      -> return infty -- not a first-order value
     I.Pi{}       -> return infty
@@ -169,4 +169,5 @@ callArg v =
     I.Shared{}   -> __IMPOSSIBLE__
     I.ExtLam{}   -> __IMPOSSIBLE__
   where
-    infty = Approx []
+    infty = Approx [Branch Infty [] n | n <- [0..nbPatternVar-1]]
+    least = Approx [Branch Least [] n | n <- [0..nbPatternVar-1]]
