@@ -293,23 +293,52 @@ collapse1 b (Record r) | let (labels, args) = unzip r =
 collapse1 b (Exact ds i) = Exact ds i
 collapse1 b (Approx bs) = Approx $ nubMax $ map (mapWeight (collapseZInfty b)) bs
 
--- | Collapsing the destructors.
 
+-- | check if a destructor is a Case
+
+isCase :: Eq n => Destructor n -> Bool
+isCase (Case _) = True
+isCase (Proj _) = False
+
+
+-- | number of Case destructors inside a list
+
+weight :: Eq n => [Destructor n] -> Int
+weight d = foldl (\n d -> if isCase d then n+1 else n) 0 d
+
+
+-- | drop the beginning of a list of destructors so that the result has less
+--   than d "Case" destructors
+
+collapseDestructors :: Eq n => Depth -> Branch n -> Branch n
+collapseDestructors d (Branch wo ds i) =
+    let (w,ds2) = aux d (reverse ds) in
+    Branch (Number w <> wo) (reverse ds2) i
+  where aux :: Eq n => Depth -> [Destructor n] => (Int, [Destructor n])
+        aux d [] = (0, [])
+        aux d (Proj l : ds) = let (w,ds2) = aux d ds in (w, Proj l : ds2)
+        aux 0 ds = (- (weight ds), [])
+        aux d (Case c : ds) = let (w,ds2) = aux (d-1) ds in (w, Case c : ds2)
+
+
+-- | Collapsing the destructors in a term.
+--
 collapse2 :: Eq n => Depth -> Term n -> Term n
 collapse2 d (Const c u) = Const c (collapse2 d u)
 collapse2 _ (Record []) = __IMPOSSIBLE__
 collapse2 d (Record r) | let (labels, args) = unzip r =
   Record (zip labels (map (collapse2 d) args))
-collapse2 d (Exact ds i) =
-  let n = length ds in
-  if n > d
-  then Approx [Branch (Number (d-n)) (drop (n-d) ds) i]
-  else (Exact ds i)
-collapse2 d (Approx bs) = Approx $ nub_max $
-  map (\ (Branch w ds i) -> let n=length ds in
-         if n>d then Branch (w <> (Number (d-n))) (drop (n-d) ds) i
-         else Branch w ds i)
-      bs
+collapse2 d (Exact ds i) = let n = weight ds in
+  if n <= d
+  then Exact ds i
+  -- else Approx [Branch (Number (d-n)) (drop (n-d) ds) i]
+  else Approx [collapseDestructors d (Branch (Number 0) ds i)]
+collapse2 d (Approx bs) = Approx $ nubMax $
+  map (collapseDestructors d) bs
+  -- map (\ (Branch w ds i) -> let n=length ds in
+  --        if n>d then Branch (w <> (Number (d-n))) (drop (n-d) ds) i
+  --        else Branch w ds i)
+  --     bs
 
 -- | Collapsing constructors.
 
@@ -341,8 +370,8 @@ compose d b tau (CallSubst sigma) = (collapseCall d b . CallSubst <$> do
 instance Eq n => CallComb (CallSubst n) where
   callComb tau sigma = compose d b tau sigma
     where CutOff c = ?cutoff
-          b = c + 1
-          d = 2*b -- *2 because of the layer of tuples FIXME
+          b = max 1 c  -- weight bound cannot be 0
+          d = max 0 b  -- FIXME: need to be able to give both bounds independently
 
 isDecreasing :: Eq n => CallSubst n -> Bool
 isDecreasing (CallSubst tau) = any decr tau
