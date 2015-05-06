@@ -21,7 +21,7 @@ import Data.Monoid
 import Data.Functor
 import Data.Traversable (forM)
 
-import Agda.Syntax.Abstract.Name (QName)
+import Agda.Syntax.Abstract.Name (QName, qnameName)
 
 import Agda.Termination.CutOff
 import Agda.Termination.CallDecoration
@@ -70,7 +70,7 @@ data Destructor
 
 instance Pretty Destructor where
   pretty (Proj l) = text $ "π_" ++ l
-  pretty (Case c) = text $ (prettyShow c) ++ "-"
+  pretty (Case c) = text $ (prettyShow $ qnameName c) ++ "-"
 
 -- | The arguments of the caller are de Bruijn indices.
 type ArgNo = Int
