@@ -52,7 +52,7 @@ import Agda.Termination.Order as Order
 import Agda.Termination.CallDecoration
 import Agda.Termination.CallToMatrix (ElimsToCall(..))
 
-import Agda.Termination.Hyvernat.CallSubst
+import Agda.Termination.Hyvernat.CallSubst as CallSubst
 
 import Agda.TypeChecking.Monad hiding (Record)
 import Agda.TypeChecking.Monad.Builtin
@@ -115,9 +115,9 @@ addInfty (CallSubst tau) = CallSubst $ map (\(x,t) -> (x, addInftyTerm (length t
 
 addInftyTerm :: Eq n => Int -> Term n -> Term n
 addInftyTerm nbArgs (Const n t) = Const n $ addInftyTerm nbArgs t
-addInftyTerm nbArgs (Record []) = Approx [Branch Infty [] n | n <- [1..nbArgs]]
+addInftyTerm nbArgs (Record []) = Approx [Branch Infty [] $ CallSubst.Arg n | n <- [1..nbArgs]]
 addInftyTerm nbArgs (Record r) = Record $ map (\(l,t) -> (l,addInftyTerm nbArgs t)) r
-addInftyTerm nbArgs (Approx []) = Approx [Branch Infty [] n | n <- [1..nbArgs]]
+addInftyTerm nbArgs (Approx []) = Approx [Branch Infty [] $ CallSubst.Arg n | n <- [1..nbArgs]]
 addInftyTerm _ t = t
 
 
@@ -125,7 +125,7 @@ invertPatterns :: MaskedDeBruijnPats -> [ (DeBruijnIndex, Term QName) ]
 invertPatterns ps = concat $ map aux (zip ps [1..])
   where aux (Masked masked p, argNo) = if masked
                                        then []
-                                       else map (\(i,ds) -> (i, Exact (reverse ds) argNo)) (invertPattern p)
+                                       else map (\(i,ds) -> (i, Exact (reverse ds) $ CallSubst.Arg argNo)) (invertPattern p)
 
 type DeBruijnIndex = Int
 
@@ -161,14 +161,14 @@ callElim :: I.Elim -> TCM (Term QName)
 callElim e =
   case e of
     I.Proj{}          -> return $ infty
-    I.Apply (Arg _ a) -> callArg a
+    I.Apply (Common.Arg _ a) -> callArg a
   where
     infty = Approx []
 
 callArg :: I.Term -> TCM (Term QName)
 callArg v =
   case I.ignoreSharing v of
-    I.Var i _    -> return $ Exact [] i
+    I.Var i _    -> return $ Exact [] $ CallSubst.Arg i
     I.Con c []   -> return $ Const (I.conName c) infty  -- constant: we cannot compare it with anything
     I.Con c vs   -> Const (I.conName c) . Record <$>
       zipWithM (\ v pr -> (show pr,) <$> callArg (unArg v)) vs [1..]
@@ -182,7 +182,7 @@ callArg v =
     I.Pi{}       -> return infty
     I.Sort{}     -> return infty
     I.Level{}    -> return infty
-    I.MetaV x es -> __IMPOSSIBLE__ -- TODO: -∞ or something
+    I.MetaV x es -> return $ Exact [] $ CallSubst.MetaVar $ I.metaId x
     I.DontCare v -> callArg v
     I.Shared{}   -> __IMPOSSIBLE__
     I.ExtLam{}   -> __IMPOSSIBLE__

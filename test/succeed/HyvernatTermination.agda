@@ -1,5 +1,6 @@
 {-# OPTIONS --hyvernat-termination-check #-}
-{-# OPTIONS -v term:40  #-}
+{-# OPTIONS --allow-unsolved-metas #-}
+{-# OPTIONS -v term:2  #-}
 
 data Nat : Set where
   Z : Nat
@@ -45,13 +46,13 @@ rev_append Nil l = l
 rev_append (Cons a as) l = rev_append as (Cons a l)
 
 -- should pass when I deal with metavariables
---meta1 : Nat -> Nat
---meta1 n = meta1 ?
+meta1 : Nat -> Nat
+meta1 n = meta1 ?
 
---meta2 : Nat -> Nat -> Nat
---meta2 Z Z = Z
---meta2 (S n) m = meta2 m ?
---meta2 m (S n) = meta2 n ?
+meta2 : Nat -> Nat -> Nat
+meta2 Z Z = Z
+meta2 (S n) m = meta2 m ?
+meta2 m (S n) = meta2 n ?
 
 
 f1 : Bin → Set

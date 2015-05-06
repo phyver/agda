@@ -31,6 +31,7 @@ import Agda.Utils.Pretty (Pretty(..), prettyShow, text, align)
 #include "undefined.h"
 import Agda.Utils.Impossible
 
+import Agda.Auto.Syntax hiding (Const)
 
 
 
@@ -73,13 +74,22 @@ instance Pretty n => Pretty (Destructor n) where
 
 -- | The arguments of the caller are de Bruijn indices.
 type ArgNo = Int
+data Var = Arg ArgNo
+         | MetaVar Nat
+  deriving Eq
+instance Pretty Var where
+  pretty (Arg i) = text $ " x_" ++ (prettyShow i)
+  pretty (MetaVar i) = text $ " ?_" ++ (prettyShow i)
+
 type Weight = ZInfty
 
 data Branch n = Branch
   { brWeight :: Weight
   , brDests  :: [Destructor n]
-  , brArgNo  :: ArgNo
+  , brVar    :: Var
   }
+instance Pretty n => Pretty (Branch n) where
+  pretty (Branch w ds x) = text $ "<" ++ (prettyShow w) ++ ">" ++ (intercalate " " (map prettyShow ds)) ++ (prettyShow x)
 
 -- | Semantic editor for @Weight@.
 mapWeight :: (Weight -> Weight) -> Branch n -> Branch n
@@ -89,14 +99,15 @@ mapWeight f br = br { brWeight = f (brWeight br) }
 data Term n
   = Const n (Term n)              -- ^ constructor
   | Record [(String , Term n)]    -- ^ record
-  | Exact [Destructor n]  ArgNo   -- ^ "exact" branch of destructors, with argument
+  | Exact [Destructor n]  Var     -- ^ "exact" branch of destructors, with argument
   | Approx [Branch n]             -- ^ sum of approximations
 
 instance Pretty n => Pretty (Term n) where
   pretty (Const c t)  = text $ prettyShow c ++ " " ++ prettyShow t
   pretty (Record [])   = text "empty record: SHOULDN'T HAPPEN"
   pretty (Record l)   = text $ "{" ++ (intercalate " ; " (map (\(l,t) -> prettyShow l ++ "=" ++ prettyShow t) l)) ++ "}"
-  pretty (Exact ds i) = text $ (intercalate " " (map prettyShow ds)) ++ " x_" ++ (prettyShow i)
+  pretty (Exact ds (Arg i)) = text $ (intercalate " " (map prettyShow ds)) ++ " x_" ++ (prettyShow i)
+  pretty (Exact ds (MetaVar i)) = text $ (intercalate " " (map prettyShow ds)) ++ " ?_" ++ (prettyShow i)
   pretty (Approx [])  = text "empty sum"
   pretty (Approx l)   = text $ intercalate " + " (map (\(Branch w ds i) -> "<" ++ (prettyShow w) ++ ">" ++ (intercalate " " (map prettyShow ds)) ++ " x_" ++ (prettyShow i)) l)
 
@@ -265,15 +276,19 @@ getSubtree _ _ = __IMPOSSIBLE__ -- typing proble
 
 -- | Given a term and a substitution (call), apply the substitution.
 
+substituteVar :: Eq n => Var -> CallSubst n -> Term n
+substituteVar (Arg i) tau = getTerm tau i
+substituteVar (MetaVar i) tau = Exact [] $ MetaVar i
+
 substitute :: Eq n => Term n -> CallSubst n -> Maybe (Term n)
 substitute (Const c u) tau = Const c <$> substitute u tau
 substitute (Record []) _ = __IMPOSSIBLE__
 substitute (Record r) tau | let (labels, terms) = unzip r =
   Record . zip labels <$> mapM (`substitute` tau) terms
-substitute (Exact ds i) tau = getSubtree (reverse ds) (getTerm tau i)
+substitute (Exact ds x) tau = getSubtree (reverse ds) $ substituteVar x tau
 substitute (Approx bs) tau = Approx . nubMax . concat <$> do
-  forM bs $ \ (Branch w ds i) -> do
-    reduceApprox w <$> getSubtree (reverse ds) (getTerm tau i)
+  forM bs $ \ (Branch w ds x) -> do
+    reduceApprox w <$> getSubtree (reverse ds) (substituteVar x tau)
 
 -- | Collapsing the weights.
 
@@ -373,7 +388,12 @@ isDecreasing (CallSubst tau) = any decr tau
           aux _ (Record []) = __IMPOSSIBLE__
           aux ds (Record r) = isOK ds t || any (\(n,u) -> aux ((Proj n):ds) u) r
           aux ds t = isOK ds t
-          isOK ds t = approximates (Approx [Branch (Number (-1)) ds i]) t
+          isOK ds t = approximates (Approx [Branch (Number (-1)) ds $ Arg i]) $ removeMeta t
+          removeMeta (Const n t) = Const n $ removeMeta t
+          removeMeta (Record rs) = Record $ map (\(l,t) -> (l, removeMeta t)) rs
+          removeMeta (Exact ds (Arg i)) = Exact ds (Arg i)
+          removeMeta (Exact ds (MetaVar i)) = Approx []
+          removeMeta (Approx s) = Approx [Branch w ds (Arg i) | Branch w ds (Arg i) <- s]
 
 
 instance Eq n => Idempotent (CallSubst n) where
