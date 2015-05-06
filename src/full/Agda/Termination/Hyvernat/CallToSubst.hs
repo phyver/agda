@@ -135,6 +135,8 @@ invertPattern :: DeBruijnPat -> [ (DeBruijnIndex, [Destructor]) ]
 invertPattern p =
   case p of
     VarDBP i -> return (i, [])
+    ConDBP c [] -> mzero
+    ConDBP c [p] -> map (\(i, ds) -> (i, Case c : ds)) $ invertPattern p
     ConDBP c ps -> concat $ map (\(pat, pr) -> map (\(i,ds) -> (i, Case c : Proj pr : ds)) $ invertPattern pat) $ zip ps $ map show [1..]
     LitDBP{}  -> mzero
     TermDBP{} -> mzero
@@ -170,6 +172,9 @@ callArg v =
   case I.ignoreSharing v of
     I.Var i _    -> return $ Exact [] $ CallSubst.Arg i
     I.Con c []   -> return $ Const (I.conName c) infty  -- constant: we cannot compare it with anything
+    I.Con c [v]  -> do
+                       t <- callArg $ unArg v
+                       return $ Const (I.conName c) t
     I.Con c vs   -> Const (I.conName c) . Record <$>
       zipWithM (\ v pr -> (show pr,) <$> callArg (unArg v)) vs [1..]
     I.Lit{} ->  do
