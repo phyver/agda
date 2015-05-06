@@ -39,22 +39,17 @@ type Bound = Int  -- ^ cutoff for weight
 
 -- | Type for depth differences.
 data ZInfty
-  = Least               -- FIXME: probably doesn't work...  meta2 (S n) m = meta2 m ? //  meta2 m (S n) = meta2 n ? is non terminating...
-  | Number Int
-  | Infty
+  =  Number Int
+   | Infty
   deriving Eq
 
 instance Ord ZInfty where
   compare Infty Infty = EQ
   compare Infty _ = GT
   compare _ Infty = LT
-  compare Least Least = EQ
-  compare Least _ = LT
-  compare _ Least = GT
   compare (Number n) (Number m) = compare n m
 
 instance Pretty ZInfty where
-  pretty Least = text "⊥"
   pretty Infty = text "∞"
   pretty (Number n) = pretty n
 
@@ -63,8 +58,6 @@ instance Monoid ZInfty where
   mempty = Number 0
   mappend Infty _ = Infty
   mappend _ Infty = Infty
-  mappend Least _ = Least
-  mappend _ Least = Least
   mappend (Number n) (Number m) = Number (n+m)
 
 -- | The two kinds of destructors:
@@ -123,7 +116,6 @@ instance Pretty n => Show (CallSubst n) where
 
 collapseZInfty :: Int -> ZInfty -> ZInfty
 collapseZInfty b Infty = Infty
-collapseZInfty b Least = Least
 collapseZInfty b (Number n)
   | n < -b    = Number (-b)
   | n > b-1   = Infty
