@@ -81,7 +81,7 @@ import qualified Agda.Utils.VarSet as VarSet
 #include "undefined.h"
 import Agda.Utils.Impossible
 
-instance ElimsToCall (CallSubst QName) where
+instance ElimsToCall CallSubst where
   elimsToCall g es = do
     cutoff <- terGetCutOff
     let ?cutoff = cutoff
@@ -110,10 +110,10 @@ Patterns become
 --   size:
 --     - constants: which we cannot compare to any argument
 --     - function calls
-addInfty :: CallSubst QName -> CallSubst QName
+addInfty :: CallSubst -> CallSubst
 addInfty (CallSubst tau) = CallSubst $ map (\(x,t) -> (x, addInftyTerm (length tau) t)) tau
 
-addInftyTerm :: Eq n => Int -> Term n -> Term n
+addInftyTerm :: Int -> Term -> Term
 addInftyTerm nbArgs (Const n t) = Const n $ addInftyTerm nbArgs t
 addInftyTerm nbArgs (Record []) = Approx [Branch Infty [] $ CallSubst.Arg n | n <- [1..nbArgs]]
 addInftyTerm nbArgs (Record r) = Record $ map (\(l,t) -> (l,addInftyTerm nbArgs t)) r
@@ -121,7 +121,7 @@ addInftyTerm nbArgs (Approx []) = Approx [Branch Infty [] $ CallSubst.Arg n | n 
 addInftyTerm _ t = t
 
 
-invertPatterns :: MaskedDeBruijnPats -> [ (DeBruijnIndex, Term QName) ]
+invertPatterns :: MaskedDeBruijnPats -> [ (DeBruijnIndex, Term) ]
 invertPatterns ps = concat $ map aux (zip ps [1..])
   where aux (Masked masked p, argNo) = if masked
                                        then []
@@ -131,7 +131,7 @@ type DeBruijnIndex = Int
 
 -- | Beware, this function return the list of destructors in reverse order!
 --   The calling function (invertPatterns) should thus reverse its result...
-invertPattern :: DeBruijnPat -> [ (DeBruijnIndex, [Destructor QName]) ]
+invertPattern :: DeBruijnPat -> [ (DeBruijnIndex, [Destructor]) ]
 invertPattern p =
   case p of
     VarDBP i -> return (i, [])
@@ -153,11 +153,11 @@ Arguments become
   g3 := ∞
 @
  -}
-callElims :: [I.Elim] -> TCM (CallSubst QName)
+callElims :: [I.Elim] -> TCM CallSubst
 callElims es = CallSubst <$> do
   forM (zip es [1..]) $ \ (e, argNo) -> (argNo,) <$> callElim e
 
-callElim :: I.Elim -> TCM (Term QName)
+callElim :: I.Elim -> TCM Term
 callElim e =
   case e of
     I.Proj{}          -> return $ infty
@@ -165,7 +165,7 @@ callElim e =
   where
     infty = Approx []
 
-callArg :: I.Term -> TCM (Term QName)
+callArg :: I.Term -> TCM Term
 callArg v =
   case I.ignoreSharing v of
     I.Var i _    -> return $ Exact [] $ CallSubst.Arg i

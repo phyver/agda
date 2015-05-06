@@ -63,12 +63,12 @@ instance Monoid ZInfty where
 
 -- | The two kinds of destructors:
 --   projections (on a label) and case (on a constructors)
-data Destructor n
+data Destructor
   = Proj String
-  | Case n
+  | Case QName
   deriving Eq
 
-instance Pretty n => Pretty (Destructor n) where
+instance Pretty Destructor where
   pretty (Proj l) = text $ "π_" ++ l
   pretty (Case c) = text $ (prettyShow c) ++ "-"
 
@@ -83,26 +83,26 @@ instance Pretty Var where
 
 type Weight = ZInfty
 
-data Branch n = Branch
+data Branch = Branch
   { brWeight :: Weight
-  , brDests  :: [Destructor n]
+  , brDests  :: [Destructor]
   , brVar    :: Var
   }
-instance Pretty n => Pretty (Branch n) where
+instance Pretty Branch where
   pretty (Branch w ds x) = text $ "<" ++ (prettyShow w) ++ ">" ++ (intercalate " " (map prettyShow ds)) ++ (prettyShow x)
 
 -- | Semantic editor for @Weight@.
-mapWeight :: (Weight -> Weight) -> Branch n -> Branch n
+mapWeight :: (Weight -> Weight) -> Branch -> Branch
 mapWeight f br = br { brWeight = f (brWeight br) }
 
 -- | Term language for approximations.
-data Term n
-  = Const n (Term n)              -- ^ constructor
-  | Record [(String , Term n)]    -- ^ record
-  | Exact [Destructor n]  Var     -- ^ "exact" branch of destructors, with argument
-  | Approx [Branch n]             -- ^ sum of approximations
+data Term
+  = Const QName Term              -- ^ constructor
+  | Record [(String , Term)]      -- ^ record
+  | Exact [Destructor]  Var       -- ^ "exact" branch of destructors, with argument
+  | Approx [Branch]               -- ^ sum of approximations
 
-instance Pretty n => Pretty (Term n) where
+instance Pretty Term where
   pretty (Const c t)  = text $ prettyShow c ++ " " ++ prettyShow t
   pretty (Record [])   = text "empty record: SHOULDN'T HAPPEN"
   pretty (Record l)   = text $ "{" ++ (intercalate " ; " (map (\(l,t) -> prettyShow l ++ "=" ++ prettyShow t) l)) ++ "}"
@@ -113,14 +113,14 @@ instance Pretty n => Pretty (Term n) where
 
 -- | A call is a substitution of the arguments by terms.
 
-newtype CallSubst n = CallSubst { callSubst :: [(ArgNo , Term n)] }
-    -- NOTE: could be also just [Term n]
+newtype CallSubst = CallSubst { callSubst :: [(ArgNo , Term)] }
+    -- NOTE: could be also just [Term]
 
-instance Pretty n => Pretty (CallSubst n) where
+instance Pretty CallSubst where
   pretty (CallSubst []) = text "...empty..."
   pretty (CallSubst c) = align 10 $ map (\(a,t) -> ("x_" ++ (prettyShow a) ++  " = ", pretty t)) c
 
-instance Pretty n => Show (CallSubst n) where
+instance Show CallSubst where
   show = prettyShow
 
 -- | Collapse the weight of an approximation.
@@ -149,7 +149,7 @@ suffix l1 l2 = revPrefix (reverse l1) (reverse l2) []
 
 -- | Approximates b1 b2 == True when b1 is an approximation of b2.
 --   Written @b1 <= b2@ (@b2@ is more informative than @b1@).
-approximatesDestructors :: Eq n => Branch n -> Branch n -> Bool
+approximatesDestructors :: Branch -> Branch -> Bool
 approximatesDestructors (Branch w1 ds1 x1) (Branch w2 ds2 x2)
   | x1 == x2  = case suffix ds1 ds2 of
                        (_, [], ds2') -> w2 <= w1 <> (Number $ length ds2')
@@ -160,7 +160,7 @@ approximatesDestructors (Branch w1 ds1 x1) (Branch w2 ds2 x2)
 
 -- | @nubMax@ keeps only maximal branches.
 --   The output is a list of incomparable branches.
-nubMax :: Eq n => [Branch n] -> [Branch n]
+nubMax :: [Branch] -> [Branch]
 nubMax [] = []
 nubMax (b:bs) = aux b (nubMax bs)
   where aux b [] = [b]
@@ -172,7 +172,7 @@ nubMax (b:bs) = aux b (nubMax bs)
   -- TODO: reuse Agda.Utils.Favorites
 
 -- | Computes the normal form of @<w>v@.
-reduceApprox :: Eq n => ZInfty -> Term n -> [Branch n]
+reduceApprox :: ZInfty -> Term -> [Branch]
 reduceApprox w (Const _ v) = reduceApprox (w <> (Number 1)) v
 reduceApprox w (Record []) = __IMPOSSIBLE__
 reduceApprox w (Record l) = nubMax $ concat $ map (reduceApprox (w <> (Number 1))) $ map snd l
@@ -180,7 +180,7 @@ reduceApprox w (Approx bs) = nubMax $ map (\(Branch w' ds i) -> (Branch (w <> w'
 reduceApprox w (Exact ds i) = [ Branch w ds i ]
 
 -- | Partial order @approximates t1 t2@ iff @t1 <= t2@.
-approximates :: Eq n => Term n -> Term n -> Bool
+approximates :: Term -> Term -> Bool
 approximates (Exact ds1 i1) (Exact ds2 i2)
   | ds1 == ds2 && i1 == i2 = True
   | otherwise              = False
@@ -202,11 +202,11 @@ approximates _ _ = False
 --   (those that endanger termination),
 --   which corresponds to terms with least information.
 
-instance Eq n => PartialOrd (Term n) where
+instance PartialOrd Term where
   comparable = fromLeq approximates
 
 -- | @compatible t1 t2@ if exists @t0@ such that @t1 <= t0@ and @t2 <= t0@
-compatible :: Eq n => Term n -> Term n -> Bool
+compatible :: Term -> Term -> Bool
 compatible (Exact ds1 i1) (Exact ds2 i2) = ds1 == ds2 && i1 == i2
 compatible (Const c1 u1) (Const c2 u2)
   | c1 == c2  = compatible u1 u2
@@ -227,14 +227,14 @@ compatible _ _ = False
 
 
 -- | Lookup in a substitution (call).  Partial because of partial application.
-getTerm :: CallSubst n -> ArgNo -> Term n
+getTerm :: CallSubst -> ArgNo -> Term
 getTerm (CallSubst tau) i =
   case lookup i tau of
     Just t  -> t
     Nothing -> Approx []  -- TODO: correct?
 
 -- | Pointwise approximation order for calls.
-approximatesCall :: Eq n => CallSubst n -> CallSubst n -> Bool
+approximatesCall :: CallSubst -> CallSubst -> Bool
 approximatesCall tau sigma =
   let indices = map fst $ callSubst tau in
   -- let indices2 = map fst sigma in
@@ -244,7 +244,7 @@ approximatesCall tau sigma =
 -- TODO: Isolate common pattern of these functions.
 
 -- | Pointwise compatibility for calls.
-compatibleCall :: Eq n => CallSubst n -> CallSubst n -> Bool
+compatibleCall :: CallSubst -> CallSubst -> Bool
 compatibleCall tau sigma =
   let indices = map fst $ callSubst tau in
   -- let indices2 = map fst sigma in
@@ -256,11 +256,11 @@ compatibleCall tau sigma =
 --   (those that endanger termination),
 --   which corresponds to terms with least information.
 
-instance Eq n => PartialOrd (CallSubst n) where
+instance PartialOrd CallSubst where
   comparable = fromLeq approximatesCall
 
 -- | @getSubtree@ is inside the @Maybe@ monad to deal with impossible cases.
-getSubtree :: Eq n => [Destructor n] -> Term n -> Maybe (Term n)
+getSubtree :: [Destructor] -> Term -> Maybe Term
 getSubtree [] v = return v
 getSubtree ds (Approx bs) = return $ Approx $
   map (mapWeight (Number (- length ds) <>)) bs
@@ -276,11 +276,11 @@ getSubtree _ _ = __IMPOSSIBLE__ -- typing proble
 
 -- | Given a term and a substitution (call), apply the substitution.
 
-substituteVar :: Eq n => Var -> CallSubst n -> Term n
+substituteVar :: Var -> CallSubst -> Term
 substituteVar (Arg i) tau = getTerm tau i
 substituteVar (MetaVar i) tau = Exact [] $ MetaVar i
 
-substitute :: Eq n => Term n -> CallSubst n -> Maybe (Term n)
+substitute :: Term -> CallSubst -> Maybe Term
 substitute (Const c u) tau = Const c <$> substitute u tau
 substitute (Record []) _ = __IMPOSSIBLE__
 substitute (Record r) tau | let (labels, terms) = unzip r =
@@ -292,7 +292,7 @@ substitute (Approx bs) tau = Approx . nubMax . concat <$> do
 
 -- | Collapsing the weights.
 
-collapse1 :: Eq n => Bound -> Term n -> Term n
+collapse1 :: Bound -> Term -> Term
 collapse1 b (Const c u) = Const c (collapse1 b u)
 collapse1 _ (Record []) = __IMPOSSIBLE__
 collapse1 b (Record r) | let (labels, args) = unzip r =
@@ -303,25 +303,25 @@ collapse1 b (Approx bs) = Approx $ nubMax $ map (mapWeight (collapseZInfty b)) b
 
 -- | check if a destructor is a Case
 
-isCase :: Eq n => Destructor n -> Bool
+isCase :: Destructor -> Bool
 isCase (Case _) = True
 isCase (Proj _) = False
 
 
 -- | number of Case destructors inside a list
 
-weight :: Eq n => [Destructor n] -> Int
+weight :: [Destructor] -> Int
 weight d = foldl (\n d -> if isCase d then n+1 else n) 0 d
 
 
 -- | drop the beginning of a list of destructors so that the result has less
 --   than d "Case" destructors
 
-collapseDestructors :: Eq n => Depth -> Branch n -> Branch n
+collapseDestructors :: Depth -> Branch -> Branch
 collapseDestructors d (Branch wo ds i) =
     let (w,ds2) = aux d (reverse ds) in
     Branch (Number w <> wo) (reverse ds2) i
-  where aux :: Eq n => Depth -> [Destructor n] => (Int, [Destructor n])
+  where aux :: Depth -> [Destructor] => (Int, [Destructor])
         aux d [] = (0, [])
         aux d (Proj l : ds) = let (w,ds2) = aux d ds in (w, Proj l : ds2)
         aux 0 ds = (- (weight ds), [])
@@ -330,7 +330,7 @@ collapseDestructors d (Branch wo ds i) =
 
 -- | Collapsing the destructors in a term.
 --
-collapse2 :: Eq n => Depth -> Term n -> Term n
+collapse2 :: Depth -> Term -> Term
 collapse2 d (Const c u) = Const c (collapse2 d u)
 collapse2 _ (Record []) = __IMPOSSIBLE__
 collapse2 d (Record r) | let (labels, args) = unzip r =
@@ -349,7 +349,7 @@ collapse2 d (Approx bs) = Approx $ nubMax $
 
 -- | Collapsing constructors.
 
-collapse3 :: Eq n => Depth -> Term n -> Term n
+collapse3 :: Depth -> Term -> Term
 collapse3 _ (Record []) = __IMPOSSIBLE__
 collapse3 d (Record r) | let (labels, args) = unzip r =
   Record (zip labels (map (collapse3 d) args))  -- do not decrease depth bound on records
@@ -360,27 +360,27 @@ collapse3 d u = u
 
 -- | Collapsing a term.
 
-collapse :: Eq n => Depth -> Bound -> Term n -> Term n
+collapse :: Depth -> Bound -> Term -> Term
 collapse d b u = collapse1 b $ collapse2 d $ collapse3 d u
 
 -- | Collapsing a call.
 
-collapseCall :: Eq n => Depth -> Bound -> CallSubst n -> CallSubst n
+collapseCall :: Depth -> Bound -> CallSubst -> CallSubst
 collapseCall d b (CallSubst tau) = CallSubst $ map (second (collapse d b)) tau
 
 -- | CallSubst composition (partial).
 
-compose :: Eq n => Depth -> Bound -> CallSubst n -> CallSubst n -> Maybe (CallSubst n)
+compose :: Depth -> Bound -> CallSubst -> CallSubst -> Maybe CallSubst
 compose d b tau (CallSubst sigma) = (collapseCall d b . CallSubst <$> do
                                             forM sigma $ \ (i,t) -> (i,) <$> substitute t tau)
 
-instance Eq n => CallComb (CallSubst n) where
+instance CallComb CallSubst where
   callComb tau sigma = compose d b tau sigma
     where CutOff c = ?cutoff
           b = max 1 c  -- weight bound cannot be 0
           d = max 0 b  -- FIXME: need to be able to give both bounds independently
 
-isDecreasing :: Eq n => CallSubst n -> Bool
+isDecreasing :: CallSubst -> Bool
 isDecreasing (CallSubst tau) = any decr tau
   where
   decr (i,t) = aux [] t
@@ -396,6 +396,6 @@ isDecreasing (CallSubst tau) = any decr tau
           removeMeta (Approx s) = Approx [Branch w ds (Arg i) | Branch w ds (Arg i) <- s]
 
 
-instance Eq n => Idempotent (CallSubst n) where
+instance Idempotent CallSubst where
   idempotent tau = maybe False (compatibleCall tau) (callComb tau tau)
   hasDecrease = isDecreasing

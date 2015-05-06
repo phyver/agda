@@ -377,7 +377,7 @@ termCalls filtI filtN calls = do
        -- Andreas, 2015-04-27: Don't try to eliminate the cut-and-paste
        -- here, it is needed due to an ``existential'' type.
        billToTerGraph . Term.terminatesFilter filtI =<<
-         callsToCallGraph (undefined :: CallSubst QName) calls
+         callsToCallGraph (undefined :: CallSubst) calls
      _ -> __IMPOSSIBLE__
    case r of
      Left calls -> return $ singleton $ terminationError names $ callInfos calls
