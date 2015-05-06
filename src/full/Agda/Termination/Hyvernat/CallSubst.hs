@@ -103,13 +103,12 @@ data Term
   | Approx [Branch]               -- ^ sum of approximations
 
 instance Pretty Term where
-  pretty (Const c t)  = text $ prettyShow c ++ " " ++ prettyShow t
+  pretty (Const c t)  = text $ prettyShow (qnameName c) ++ " " ++ prettyShow t
   pretty (Record [])   = text "empty record: SHOULDN'T HAPPEN"
   pretty (Record l)   = text $ "{" ++ (intercalate " ; " (map (\(l,t) -> prettyShow l ++ "=" ++ prettyShow t) l)) ++ "}"
-  pretty (Exact ds (Arg i)) = text $ (intercalate " " (map prettyShow ds)) ++ " x_" ++ (prettyShow i)
-  pretty (Exact ds (MetaVar i)) = text $ (intercalate " " (map prettyShow ds)) ++ " ?_" ++ (prettyShow i)
+  pretty (Exact ds x) = text $ (intercalate " " (map prettyShow ds)) ++ (prettyShow x)
   pretty (Approx [])  = text "empty sum"
-  pretty (Approx l)   = text $ intercalate " + " (map (\(Branch w ds i) -> "<" ++ (prettyShow w) ++ ">" ++ (intercalate " " (map prettyShow ds)) ++ " x_" ++ (prettyShow i)) l)
+  pretty (Approx l)   = text $ intercalate " + " (map (\(Branch w ds x) -> "<" ++ (prettyShow w) ++ "> " ++ (intercalate " " (map prettyShow ds)) ++ (prettyShow x)) l)
 
 -- | A call is a substitution of the arguments by terms.
 
