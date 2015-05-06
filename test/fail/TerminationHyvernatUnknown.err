@@ -1,0 +1,6 @@
+TerminationHyvernatUnknown.agda:10,3-12,26
+Termination checking failed for the following functions:
+  bad
+Problematic calls:
+  bad (bad n)
+    (at TerminationHyvernatUnknown.agda:12,15-18)
