@@ -3,58 +3,101 @@
 {-# LANGUAGE PatternGuards  #-}
 {-# LANGUAGE TupleSections  #-}
 
--- | Pierre Hyvernat's refinement of size-change termination.
---   See
+-- | Pierre Hyvernat's refinement of size-change termination by Lee, Jones and
+--   Ben-Amram.
+--   The test is described in details in the paper
 --
 --      Pierre Hyvernat,
 --      The Size-Change Termination Principle for Constructor Based Languages
 --      LMCS 2013
 --
---  TODO: give an introduction by a relevant example here.
+--   To each recursive definition
+--     f patterns = ... g args ...
+--     ...
+--     g patterns = ... f args ...
+--     ...
+--   I associate a call graph. Each "call site" gives an edge from the caller
+--   to the called function. For example, "g args" gives an edge from "f" to
+--   "g".
+--
+--   Those edge are labeled by substitutions representing how the arguments of
+--   the called function are obtained from the arguments of the calling
+--   function.
+--   For example, in
+--     f (Cons a l) (S n) = ... g l (T n) a
+--   is represented by (arg1 := π1 Cons- arg1 , arg2 := T S- arg2 , arg3 := π2 Cons- arg1)
+--   (Here, f has two arguments and g has three arguments...)
+--     - π1 / π2 are used to identify the number of an argument to a
+--       constructor: "a" is the first argument to a "Cons" and "l" is the
+--       second argument to a "Cons"
+--     - "Cons-" and "S-" are used to indicate pattern matching. They
+--       litteraly mean "remove a Cons" or "remove an S".
+--     - "T" is a usual constructor.
+--   Thus, "arg3 := π2 Cons- arg1" means that the third argument at the call
+--   site is obtained from the first argument of the caller by pattern
+--   matching on "Cons" and taking the second argument.
+--
+--   ** NOTE: as per Andreas suggestion, we could replace this
+--   ** representation as substitutions by a representation as "rewriting
+--   ** rules". The label of the same edge would be
+--   **   (Cons x1 x2),(S x3) => x2,(T x3),x1
+--   ** This would actually simplify some parts of the implementation...
+--
+--   I then apply the size-change termination principle on this graph by
+--   composing the substitutions. In order to keep the graph finite, I
+--   collapse substitutions when they become to big: I only keep constructors
+--   up to a given depth and approximate everything that was removed by a
+--   "weight": "S S S n" collapsed at depth 1 gives "S <2> n" where the "<2>"
+--   stands for "something with at most 2 constructors".
+--   The weight themselves are bounded. When they reach a given bound, they
+--   are replaced by "<∞>".
+--
 
 module Agda.Termination.Hyvernat.CallSubst where
-
-import Control.Arrow (first, second)
 
 import Data.List
 import Data.Monoid
 import Data.Functor
 import Data.Traversable (forM)
-
-import Agda.Syntax.Abstract.Name (QName, qnameName)
-
-import Agda.Termination.CutOff
-import Agda.Termination.CallDecoration
+import Control.Arrow (first, second)
 
 import Agda.Utils.PartialOrd
 import Agda.Utils.Pretty (Pretty(..), prettyShow, text, align)
 #include "undefined.h"
 import Agda.Utils.Impossible
-
 import Agda.Auto.Syntax hiding (Const)
+import Agda.Syntax.Abstract.Name (QName, qnameName)
+
+import Agda.Termination.CutOff
+import Agda.Termination.CallDecoration
 
 
 
-type Depth = Int  -- ^ cutoff for constructor/destructor depth
-type Bound = Int  -- ^ cutoff for weight
+-- | The test is parametrized by 2 bounds:
+--     - a bound on the weight af approximations: b means approximations
+--       belong to {-b, ..., 0, 1, ..., b-1, ∞}
+--     - a bound on the depth of constructors we keep
+--   The bigger the bounds, the more precise the test.
+--   The bounds 1 (for approximations) and 0 (for depth) amounts roughly to
+--   the original size-change termination principle.
+type Depth = Int  -- ^ cutoff for constructor depth
+type Bound = Int  -- ^ cutoff for weight of approximations
 
 -- | Type for depth differences.
+--   During an actual termination checking, the number appearing in labels
+--   will all be in {-b, ..., 0, 1, ..., b-1, ∞}.
 data ZInfty
   =  Number Int
    | Infty
   deriving Eq
-
 instance Ord ZInfty where
   compare Infty Infty = EQ
   compare Infty _ = GT
   compare _ Infty = LT
   compare (Number n) (Number m) = compare n m
-
 instance Pretty ZInfty where
-  pretty Infty = text "∞"
-  pretty (Number n) = pretty n
-
-
+  pretty Infty = text "<∞>"
+  pretty (Number n) = text $ "<" ++ (show n) ++ ">"
 instance Monoid ZInfty where
   mempty = Number 0
   mappend Infty _ = Infty
@@ -62,18 +105,21 @@ instance Monoid ZInfty where
   mappend (Number n) (Number m) = Number (n+m)
 
 -- | The two kinds of destructors:
---   projections (on a label) and case (on a constructors)
+--   projections (on a label) and case (on a constructors).
+--   Projection are used to access the different arguments of a constructor.
 data Destructor
   = Proj String
   | Case QName
   deriving Eq
-
 instance Pretty Destructor where
   pretty (Proj l) = text $ "π_" ++ l
   pretty (Case c) = text $ (prettyShow $ qnameName c) ++ "-"
 
--- | The arguments of the caller are de Bruijn indices.
+-- | The arguments of the caller are numbered from "1" to "arity".
 type ArgNo = Int
+
+-- | Variables appearing in terms representing argument of a called function
+--   can either correspond to argument of the caller, or metavariables.
 data Var = Arg ArgNo
          | MetaVar Nat
   deriving Eq
@@ -81,50 +127,57 @@ instance Pretty Var where
   pretty (Arg i) = text $ " x_" ++ (prettyShow i)
   pretty (MetaVar i) = text $ " ?_" ++ (prettyShow i)
 
+-- | A "branch" identifies a variable in a pattern: starting from an argument
+--   of the calling function, we follow a path given by constructors /
+--   projections. The weight allows to approximate some constructor by their
+--   number.
 type Weight = ZInfty
-
 data Branch = Branch
   { brWeight :: Weight
   , brDests  :: [Destructor]
   , brVar    :: Var
   }
 instance Pretty Branch where
-  pretty (Branch w ds x) = text $ "<" ++ (prettyShow w) ++ ">" ++ (intercalate " " (map prettyShow ds)) ++ (prettyShow x)
+  pretty (Branch w ds x) = text $ (prettyShow w) ++ (intercalate " " (map prettyShow ds)) ++ (prettyShow x)
 
 -- | Semantic editor for @Weight@.
 mapWeight :: (Weight -> Weight) -> Branch -> Branch
 mapWeight f br = br { brWeight = f (brWeight br) }
 
 -- | Term language for approximations.
+--   Arguments of the called function are terms constructed from
+--     - constructors
+--     - records (to allow constructors with several arguments)
+--     - variables of patterns, aka branches
+--   Those branch can either be "exact", ie correspond exactly to a pattern
+--   variable, or "approximated". When they are approximated, we need to keep
+--   a "non-deterministic sum" of variables: Node(x1,x2) at depth 0 is
+--   approximated by "<1>x1 + <1>x2".
 data Term
   = Const QName Term              -- ^ constructor
   | Record [(String , Term)]      -- ^ record
   | Exact [Destructor]  Var       -- ^ "exact" branch of destructors, with argument
   | Approx [Branch]               -- ^ sum of approximations
-
 instance Pretty Term where
   pretty (Const c t)  = text $ prettyShow (qnameName c) ++ " " ++ prettyShow t
   pretty (Record [])   = text "empty record: SHOULDN'T HAPPEN"
   pretty (Record l)   = text $ "{" ++ (intercalate " ; " (map (\(l,t) -> prettyShow l ++ "=" ++ prettyShow t) l)) ++ "}"
   pretty (Exact ds x) = text $ (intercalate " " (map prettyShow ds)) ++ (prettyShow x)
   pretty (Approx [])  = text "empty sum"
-  pretty (Approx l)   = text $ intercalate " + " (map (\(Branch w ds x) -> "<" ++ (prettyShow w) ++ "> " ++ (intercalate " " (map prettyShow ds)) ++ (prettyShow x)) l)
+  pretty (Approx l)   = text $ intercalate " + " (map (\(Branch w ds x) -> (prettyShow w) ++ (intercalate " " (map prettyShow ds)) ++ (prettyShow x)) l)
 
--- | A call is a substitution of the arguments by terms.
-
+-- | A call is a substitution of the arguments (of the called function) by
+--   terms (with variables corresponding to arguments of the calling function).
 newtype CallSubst = CallSubst { callSubst :: [(ArgNo , Term)] }
     -- NOTE: could be also just [Term]
-
 instance Pretty CallSubst where
-  pretty (CallSubst []) = text "...empty..."
+  pretty (CallSubst []) = text "...empty substitution..."
   pretty (CallSubst c) = align 10 $ map (\(a,t) -> ("x_" ++ (prettyShow a) ++  " = ", pretty t)) c
-
 instance Show CallSubst where
   show = prettyShow
 
 -- | Collapse the weight of an approximation.
-
-collapseZInfty :: Int -> ZInfty -> ZInfty
+collapseZInfty :: Bound -> ZInfty -> ZInfty
 collapseZInfty b Infty = Infty
 collapseZInfty b (Number n)
   | n < -b    = Number (-b)
@@ -146,7 +199,7 @@ suffix l1 l2 = revPrefix (reverse l1) (reverse l2) []
         revPrefix l1 l2 s = (s, l1, l2)
   -- TODO: Maybe move to Agda.Utils.List
 
--- | Approximates b1 b2 == True when b1 is an approximation of b2.
+-- | @approximates b1 b2@ is @True@ when b1 is an approximation of b2.
 --   Written @b1 <= b2@ (@b2@ is more informative than @b1@).
 approximatesDestructors :: Branch -> Branch -> Bool
 approximatesDestructors (Branch w1 ds1 x1) (Branch w2 ds2 x2)
@@ -154,7 +207,6 @@ approximatesDestructors (Branch w1 ds1 x1) (Branch w2 ds2 x2)
                        (_, [], ds2') -> w2 <= w1 <> (Number $ length ds2')
                        otherwise -> False
   | otherwise = False
-
   -- TODO: instantiate Agda.Utils.PartialOrd
 
 -- | @nubMax@ keeps only maximal branches.
@@ -167,7 +219,6 @@ nubMax (b:bs) = aux b (nubMax bs)
           | approximatesDestructors b b1  = aux b bs
           | approximatesDestructors b1 b  = aux b1 bs
           | otherwise                      = b1:(aux b bs)
-
   -- TODO: reuse Agda.Utils.Favorites
 
 -- | Computes the normal form of @<w>v@.
@@ -200,7 +251,6 @@ approximates _ _ = False
 --   Call graph completion keeps the worst calls
 --   (those that endanger termination),
 --   which corresponds to terms with least information.
-
 instance PartialOrd Term where
   comparable = fromLeq approximates
 
@@ -222,8 +272,6 @@ compatible (Approx bs1) (Approx bs2) =
 compatible (Approx bs) u = compatible (Approx $ reduceApprox (Number 0) u) (Approx bs)
 compatible u (Approx bs) = compatible (Approx $ reduceApprox (Number 0) u) (Approx bs)
 compatible _ _ = False
-
-
 
 -- | Lookup in a substitution (call).  Partial because of partial application.
 getTerm :: CallSubst -> ArgNo -> Term
@@ -274,7 +322,6 @@ getSubtree (Proj l : ds) (Record r) =
 getSubtree _ _ = __IMPOSSIBLE__ -- typing proble
 
 -- | Given a term and a substitution (call), apply the substitution.
-
 substituteVar :: Var -> CallSubst -> Term
 substituteVar (Arg i) tau = getTerm tau i
 substituteVar (MetaVar i) tau = Exact [] $ MetaVar i
@@ -289,8 +336,7 @@ substitute (Approx bs) tau = Approx . nubMax . concat <$> do
   forM bs $ \ (Branch w ds x) -> do
     reduceApprox w <$> getSubtree (reverse ds) (substituteVar x tau)
 
--- | Collapsing the weights.
-
+-- | Collapsing the weights inside a term.
 collapse1 :: Bound -> Term -> Term
 collapse1 b (Const c u) = Const c (collapse1 b u)
 collapse1 _ (Record []) = __IMPOSSIBLE__
@@ -299,23 +345,17 @@ collapse1 b (Record r) | let (labels, args) = unzip r =
 collapse1 b (Exact ds i) = Exact ds i
 collapse1 b (Approx bs) = Approx $ nubMax $ map (mapWeight (collapseZInfty b)) bs
 
-
 -- | check if a destructor is a Case
-
 isCase :: Destructor -> Bool
 isCase (Case _) = True
 isCase (Proj _) = False
 
-
 -- | number of Case destructors inside a list
-
 weight :: [Destructor] -> Int
 weight d = foldl (\n d -> if isCase d then n+1 else n) 0 d
 
-
 -- | drop the beginning of a list of destructors so that the result has less
 --   than d "Case" destructors
-
 collapseDestructors :: Depth -> Branch -> Branch
 collapseDestructors d (Branch wo ds i) =
     let (w,ds2) = aux d (reverse ds) in
@@ -326,9 +366,7 @@ collapseDestructors d (Branch wo ds i) =
         aux 0 ds = (- (weight ds), [])
         aux d (Case c : ds) = let (w,ds2) = aux (d-1) ds in (w, Case c : ds2)
 
-
 -- | Collapsing the destructors in a term.
---
 collapse2 :: Depth -> Term -> Term
 collapse2 d (Const c u) = Const c (collapse2 d u)
 collapse2 _ (Record []) = __IMPOSSIBLE__
@@ -347,7 +385,6 @@ collapse2 d (Approx bs) = Approx $ nubMax $
   --     bs
 
 -- | Collapsing constructors.
-
 collapse3 :: Depth -> Term -> Term
 collapse3 _ (Record []) = __IMPOSSIBLE__
 collapse3 d (Record r) | let (labels, args) = unzip r =
@@ -358,17 +395,14 @@ collapse3 d (Const c u) = Const c (collapse3 (d-1) u)
 collapse3 d u = u
 
 -- | Collapsing a term.
-
 collapse :: Depth -> Bound -> Term -> Term
 collapse d b u = collapse1 b $ collapse2 d $ collapse3 d u
 
 -- | Collapsing a call.
-
 collapseCall :: Depth -> Bound -> CallSubst -> CallSubst
 collapseCall d b (CallSubst tau) = CallSubst $ map (second (collapse d b)) tau
 
 -- | CallSubst composition (partial).
-
 compose :: Depth -> Bound -> CallSubst -> CallSubst -> Maybe CallSubst
 compose d b tau (CallSubst sigma) = (collapseCall d b . CallSubst <$> do
                                             forM sigma $ \ (i,t) -> (i,) <$> substitute t tau)
@@ -393,7 +427,6 @@ isDecreasing (CallSubst tau) = any decr tau
           removeMeta (Exact ds (Arg i)) = Exact ds (Arg i)
           removeMeta (Exact ds (MetaVar i)) = Approx []
           removeMeta (Approx s) = Approx [Branch w ds (Arg i) | Branch w ds (Arg i) <- s]
-
 
 instance Idempotent CallSubst where
   idempotent tau = maybe False (compatibleCall tau) (callComb tau tau)
