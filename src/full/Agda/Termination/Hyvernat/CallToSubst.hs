@@ -121,13 +121,19 @@ addInftyTerm nbArgs (Approx []) = Approx [Branch Infty [] $ CallSubst.Arg n | n 
 addInftyTerm _ t = t
 
 
+getCoPatterns:: MaskedDeBruijnPats -> [ Destructor ]
+getCoPatterns ps = [ Case n | Masked False (ProjDBP n) <- ps ]
+
+
+
+type DeBruijnIndex = Int
+
 invertPatterns :: MaskedDeBruijnPats -> [ (DeBruijnIndex, Term) ]
-invertPatterns ps = concat $ map aux (zip ps [1..])
+invertPatterns ps = (-1, Exact (getCoPatterns ps) (CallSubst.Arg 0)) : (concat $ map aux (zip ps [1..]))
   where aux (Masked masked p, argNo) = if masked
                                        then []
                                        else map (\(i,ds) -> (i, Exact (reverse ds) $ CallSubst.Arg argNo)) (invertPattern p)
 
-type DeBruijnIndex = Int
 
 -- | Beware, this function return the list of destructors in reverse order!
 --   The calling function (invertPatterns) should thus reverse its result...
@@ -155,9 +161,18 @@ Arguments become
   g3 := ∞
 @
  -}
+
+-- NOTE: projections are at the end of the list of elims.
+callProjections :: [I.Elim] -> Term
+callProjections [] = Exact [] $ CallSubst.Arg (-1)
+callProjections (I.Proj n : cs) = Const n (callProjections cs)
+callProjections (I.Apply _ : cs) = Exact  [] $ CallSubst.Arg (-1)
+
+
 callElims :: [I.Elim] -> TCM CallSubst
 callElims es = CallSubst <$> do
-  forM (zip es [1..]) $ \ (e, argNo) -> (argNo,) <$> callElim e
+  el <- forM (zip es [1..]) $ \ (e, argNo) -> ((argNo,) <$> callElim e)
+  return $ (0, callProjections $ reverse es) : el
 
 callElim :: I.Elim -> TCM Term
 callElim e =

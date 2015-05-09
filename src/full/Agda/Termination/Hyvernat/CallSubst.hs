@@ -124,7 +124,8 @@ data Var = Arg ArgNo
          | MetaVar Nat
   deriving Eq
 instance Pretty Var where
-  pretty (Arg i) = text $ " x_" ++ (prettyShow i)
+  pretty (Arg 0)     = text $ "ϕ"
+  pretty (Arg i)     = text $ " x_" ++ (prettyShow i)
   pretty (MetaVar i) = text $ " ?_" ++ (prettyShow i)
 
 -- | A "branch" identifies a variable in a pattern: starting from an argument
@@ -172,7 +173,7 @@ newtype CallSubst = CallSubst { callSubst :: [(ArgNo , Term)] }
     -- NOTE: could be also just [Term]
 instance Pretty CallSubst where
   pretty (CallSubst []) = text "...empty substitution..."
-  pretty (CallSubst c) = align 10 $ map (\(a,t) -> ("x_" ++ (prettyShow a) ++  " = ", pretty t)) c
+  pretty (CallSubst c)  = align 10 $ map (\(a,t) -> ((if a==0 then "ϕ" else ("x_" ++ (prettyShow a))) ++  " = ", pretty t)) c
 instance Show CallSubst where
   show = prettyShow
 

@@ -65,3 +65,7 @@ f1 (One b) = f1 (Zer b)
 --f2 (One x) = f2 (Zer (f2 x))
 --f2 _ = Eps
 
+-- check that the order is right
+h : Bin -> Bin
+h (Zer (One b)) = h (One (Zer b))
+h _ = Eps
