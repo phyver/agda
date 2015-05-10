@@ -26,6 +26,9 @@ id : Nat -> Nat
 id Z = Z
 id (S n) = S (id n)
 
+add : Nat -> Nat -> Nat
+add n Z = n
+add n (S m) = S (add n m)
 
 last : List Nat -> Nat
 --last Nil = ?
@@ -69,3 +72,16 @@ f1 (One b) = f1 (Zer b)
 h : Bin -> Bin
 h (Zer (One b)) = h (One (Zer b))
 h _ = Eps
+
+size : {X : Set} -> Tree X -> Nat
+size Leaf = Z
+size (Node t1 _ t2) = S (add (size t1) (size t2))
+
+comb_size : {X : Set} -> Nat -> Tree X -> Tree X
+comb_size Z Leaf = Leaf
+comb_size (S n) (Node t n1 Leaf) = Node (comb_size n t) n1 Leaf
+comb_size n (Node t1 n1 (Node t2 n2 t3)) = comb_size n (Node (Node t1 n1 t2) n2 t3)
+comb_size _ _ = ?  -- shouldn't happen..
+
+comb : {X : Set} -> Tree X -> Tree X
+comb t = comb_size (size t) t

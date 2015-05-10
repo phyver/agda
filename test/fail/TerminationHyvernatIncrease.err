@@ -1,6 +1,6 @@
-TerminationHyvernatIncrease.agda:9,3-10,20
+TerminationHyvernatIncrease.agda:7,1-8,18
 Termination checking failed for the following functions:
   bad
 Problematic calls:
   bad (S n)
-    (at TerminationHyvernatIncrease.agda:10,11-14)
+    (at TerminationHyvernatIncrease.agda:8,9-12)

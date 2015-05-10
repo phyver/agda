@@ -1,6 +1,6 @@
-TerminationHyvernatOrder.agda:11,3-13,14
+TerminationHyvernatOrder.agda:9,1-11,12
 Termination checking failed for the following functions:
   bad
 Problematic calls:
   bad (Zer (One b))
-    (at TerminationHyvernatOrder.agda:12,23-26)
+    (at TerminationHyvernatOrder.agda:10,21-24)

@@ -1,6 +1,6 @@
-TerminationHyvernatLoop.agda:5,3-6,12
+TerminationHyvernatLoop.agda:3,1-4,10
 Termination checking failed for the following functions:
   bad
 Problematic calls:
   bad
-    (at TerminationHyvernatLoop.agda:6,9-12)
+    (at TerminationHyvernatLoop.agda:4,7-10)

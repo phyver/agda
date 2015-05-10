@@ -1,0 +1,8 @@
+TerminationHyvernatComb.agda:8,1-11,58
+Termination checking failed for the following functions:
+  comb
+Problematic calls:
+  comb t
+    (at TerminationHyvernatComb.agda:10,28-32)
+  comb (Node (Node t1 t2) t3)
+    (at TerminationHyvernatComb.agda:11,31-35)
