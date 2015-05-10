@@ -41,6 +41,7 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Traversable (forM, traverse)
+import Control.Arrow (first, second)
 
 import qualified Agda.Syntax.Internal as I
 import Agda.Syntax.Common as Common
@@ -111,16 +112,17 @@ Patterns become
 --     - constants: which we cannot compare to any argument
 --     - function calls
 addInfty :: CallSubst -> CallSubst
-addInfty (CallSubst tau) = CallSubst $ map (\(x,t) -> (x, addInftyTerm (length tau) t)) tau
+addInfty (CallSubst tau) = CallSubst $ map (second $ addInftyTerm ((length tau)-1)) tau
 
 addInftyTerm :: Int -> Term -> Term
 addInftyTerm nbArgs (Const n t) = Const n $ addInftyTerm nbArgs t
 addInftyTerm nbArgs (Record []) = Approx [Branch Infty [] $ CallSubst.Arg n | n <- [1..nbArgs]]
-addInftyTerm nbArgs (Record r) = Record $ map (\(l,t) -> (l,addInftyTerm nbArgs t)) r
+addInftyTerm nbArgs (Record r) = Record $ map (second $ addInftyTerm nbArgs) r
 addInftyTerm nbArgs (Approx []) = Approx [Branch Infty [] $ CallSubst.Arg n | n <- [1..nbArgs]]
 addInftyTerm _ t = t
 
 
+-- NOTE: projection are at the end of the list of patterns
 getCoPatterns:: MaskedDeBruijnPats -> [ Destructor ]
 getCoPatterns ps = [ Case n | Masked False (ProjDBP n) <- ps ]
 
@@ -132,7 +134,7 @@ invertPatterns :: MaskedDeBruijnPats -> [ (DeBruijnIndex, Term) ]
 invertPatterns ps = (-1, Exact (getCoPatterns ps) (CallSubst.Arg 0)) : (concat $ map aux (zip ps [1..]))
   where aux (Masked masked p, argNo) = if masked
                                        then []
-                                       else map (\(i,ds) -> (i, Exact (reverse ds) $ CallSubst.Arg argNo)) (invertPattern p)
+                                       else map (second $ \ds -> Exact (reverse ds) $ CallSubst.Arg argNo) (invertPattern p)
 
 
 -- | Beware, this function return the list of destructors in reverse order!
@@ -142,11 +144,11 @@ invertPattern p =
   case p of
     VarDBP i -> return (i, [])
     ConDBP c [] -> mzero
-    ConDBP c [p] -> map (\(i, ds) -> (i, Case c : ds)) $ invertPattern p
-    ConDBP c ps -> concat $ map (\(pat, pr) -> map (\(i,ds) -> (i, Case c : Proj pr : ds)) $ invertPattern pat) $ zip ps $ map show [1..]
+    ConDBP c [p] -> map (second (Case c :)) $ invertPattern p
+    ConDBP c ps -> concat $ map (\(pat, pr) -> map (second (\ds -> Case c : Proj pr : ds)) $ invertPattern pat) $ zip ps $ map show [1..]
     LitDBP{}  -> mzero
     TermDBP{} -> mzero
-    ProjDBP{} -> mzero
+    ProjDBP n -> mzero  -- projection on a argument. Can I use it?
 
 {- | Process call arguments
 

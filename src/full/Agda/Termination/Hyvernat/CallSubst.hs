@@ -72,7 +72,6 @@ import Agda.Termination.CutOff
 import Agda.Termination.CallDecoration
 
 
-
 -- | The test is parametrized by 2 bounds:
 --     - a bound on the weight af approximations: b means approximations
 --       belong to {-b, ..., 0, 1, ..., b-1, ∞}
@@ -161,7 +160,7 @@ data Term
   | Approx [Branch]               -- ^ sum of approximations
 instance Pretty Term where
   pretty (Const c t)  = text $ prettyShow (qnameName c) ++ " " ++ prettyShow t
-  pretty (Record [])   = text "empty record: SHOULDN'T HAPPEN"
+  pretty (Record [])  = text "empty record: SHOULDN'T HAPPEN"
   pretty (Record l)   = text $ "{" ++ (intercalate " ; " (map (\(l,t) -> prettyShow l ++ "=" ++ prettyShow t) l)) ++ "}"
   pretty (Exact ds x) = text $ (intercalate " " (map prettyShow ds)) ++ (prettyShow x)
   pretty (Approx [])  = text "empty sum"
@@ -219,15 +218,15 @@ nubMax (b:bs) = aux b (nubMax bs)
         aux b (b1:bs)
           | approximatesDestructors b b1  = aux b bs
           | approximatesDestructors b1 b  = aux b1 bs
-          | otherwise                      = b1:(aux b bs)
+          | otherwise                     = b1:(aux b bs)
   -- TODO: reuse Agda.Utils.Favorites
 
 -- | Computes the normal form of @<w>v@.
 reduceApprox :: ZInfty -> Term -> [Branch]
-reduceApprox w (Const _ v) = reduceApprox (w <> (Number 1)) v
-reduceApprox w (Record []) = __IMPOSSIBLE__
-reduceApprox w (Record l) = nubMax $ concat $ map (reduceApprox (w <> (Number 1))) $ map snd l
-reduceApprox w (Approx bs) = nubMax $ map (\(Branch w' ds i) -> (Branch (w <> w') ds i)) bs
+reduceApprox w (Const _ v)  = reduceApprox (w <> (Number 1)) v
+reduceApprox w (Record [])  = __IMPOSSIBLE__
+reduceApprox w (Record l)   = nubMax $ concat $ map (reduceApprox (w <> (Number 1))) $ map snd l
+reduceApprox w (Approx bs)  = nubMax $ map (\(Branch w' ds i) -> (Branch (w <> w') ds i)) bs
 reduceApprox w (Exact ds i) = [ Branch w ds i ]
 
 -- | Partial order @approximates t1 t2@ iff @t1 <= t2@.
@@ -268,8 +267,7 @@ compatible (Record l1) (Record l2)
   , let (labels2, terms2) = unzip l2 =
   labels1 == labels2 && and (zipWith compatible terms1 terms2)
 compatible (Approx bs1) (Approx bs2) =
-  any (\b1 ->
-  any (\b2 -> (approximatesDestructors b1 b2) || (approximatesDestructors b2 b1)) bs2) bs1
+  any (\b1 -> any (\b2 -> (approximatesDestructors b1 b2) || (approximatesDestructors b2 b1)) bs2) bs1
 compatible (Approx bs) u = compatible (Approx $ reduceApprox (Number 0) u) (Approx bs)
 compatible u (Approx bs) = compatible (Approx $ reduceApprox (Number 0) u) (Approx bs)
 compatible _ _ = False
@@ -324,7 +322,7 @@ getSubtree _ _ = __IMPOSSIBLE__ -- typing proble
 
 -- | Given a term and a substitution (call), apply the substitution.
 substituteVar :: Var -> CallSubst -> Term
-substituteVar (Arg i) tau = getTerm tau i
+substituteVar (Arg i) tau     = getTerm tau i
 substituteVar (MetaVar i) tau = Exact [] $ MetaVar i
 
 substitute :: Term -> CallSubst -> Maybe Term
@@ -424,7 +422,7 @@ isDecreasing (CallSubst tau) = any decr tau
           aux ds t = isOK ds t
           isOK ds t = approximates (Approx [Branch (Number (-1)) ds $ Arg i]) $ removeMeta t
           removeMeta (Const n t) = Const n $ removeMeta t
-          removeMeta (Record rs) = Record $ map (\(l,t) -> (l, removeMeta t)) rs
+          removeMeta (Record rs) = Record $ map (second removeMeta) rs
           removeMeta (Exact ds (Arg i)) = Exact ds (Arg i)
           removeMeta (Exact ds (MetaVar i)) = Approx []
           removeMeta (Approx s) = Approx [Branch w ds (Arg i) | Branch w ds (Arg i) <- s]
